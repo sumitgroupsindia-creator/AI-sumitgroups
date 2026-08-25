@@ -1,0 +1,45 @@
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Security headers. HSTS is safe here because Caddy always redirects HTTP -> HTTPS.
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), camera=(), microphone=()"
+		-Server
+	}
+
+	# API and health checks go to FastAPI.
+	@api path /api/* /health /ready
+	handle @api {
+		reverse_proxy backend:8000 {
+			header_up X-Real-IP {remote_host}
+
+			# SSE chat streaming must not be buffered or the response arrives all at once.
+			flush_interval -1
+
+			# Image generation can legitimately take a while.
+			transport http {
+				read_timeout 300s
+				write_timeout 300s
+			}
+		}
+	}
+
+	# Everything else is the Next.js app.
+	handle {
+		reverse_proxy frontend:3000
+	}
+
+	request_body {
+		# Must be >= MAX_UPLOAD_MB, with headroom for multipart overhead.
+		max_size 25MB
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
