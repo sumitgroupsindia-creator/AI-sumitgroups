@@ -18,6 +18,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
+        if not settings.rate_limit_enabled:
+            return await call_next(request)
         if not path.startswith("/api/v1/") or path in ("/api/v1/health", "/api/v1/ready"):
             return await call_next(request)
 

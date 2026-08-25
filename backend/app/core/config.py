@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
     log_level: str = "INFO"
 
+    rate_limit_enabled: bool = True
     rate_limit_per_minute: int = 60
     auth_rate_limit_per_minute: int = 10
 

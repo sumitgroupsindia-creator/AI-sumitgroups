@@ -7,6 +7,7 @@ Create Date: 2026-08-25
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import mysql
 
 revision = "0001_initial"
 down_revision = None
@@ -25,12 +26,16 @@ def _pk():
 
 
 def _timestamps():
+    # fsp=6 (microseconds): plain DATETIME truncates to seconds, which ties rows created in the
+    # same second and breaks created_at ordering.
     return [
-        sa.Column("created_at", sa.DateTime, server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column(
+            "created_at", mysql.DATETIME(fsp=6), server_default=sa.text("CURRENT_TIMESTAMP(6)"), nullable=False
+        ),
         sa.Column(
             "updated_at",
-            sa.DateTime,
-            server_default=sa.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+            mysql.DATETIME(fsp=6),
+            server_default=sa.text("CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)"),
             nullable=False,
         ),
     ]

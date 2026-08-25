@@ -1,8 +1,18 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Uuid, func, text
+from sqlalchemy import DateTime, Uuid, text
+from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column
+
+# Microsecond precision: plain MySQL DATETIME truncates to whole seconds, which makes rows created
+# in the same second tie and scrambles created_at ordering (chat messages, subscriptions, results).
+PreciseDateTime = DateTime().with_variant(mysql.DATETIME(fsp=6), "mysql")
+
+
+def _utcnow() -> datetime:
+    # Naive UTC: MySQL DATETIME carries no timezone, and the server runs at +00:00.
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class UUIDPKMixin:
@@ -12,12 +22,16 @@ class UUIDPKMixin:
 
 
 class TimestampMixin:
+    # Client-side defaults matter on MySQL: without them these server-default columns stay expired
+    # after INSERT (no RETURNING support) and trigger a lazy DB load during response serialization,
+    # which is outside SQLAlchemy's async greenlet context and raises MissingGreenlet.
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False
+        PreciseDateTime, default=_utcnow, server_default=text("CURRENT_TIMESTAMP(6)"), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        server_default=text("CURRENT_TIMESTAMP"),
-        onupdate=func.now(),
+        PreciseDateTime,
+        default=_utcnow,
+        onupdate=_utcnow,
+        server_default=text("CURRENT_TIMESTAMP(6)"),
         nullable=False,
     )
