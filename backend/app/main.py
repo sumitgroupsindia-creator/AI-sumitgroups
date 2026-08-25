@@ -3,13 +3,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import admin, auth, chat, credits, files, health, images, subscription, user
+from app.api.v1 import admin, auth, chat, config, credits, files, health, images, subscription, user
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.middleware.error_handler import register_error_handlers
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.services import settings_service
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -19,6 +20,12 @@ logger = get_logger("main")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("app.startup", environment=settings.environment)
+    # Populate the settings cache before the first request, so the handful of synchronous readers
+    # (SMTP, webhook signatures) never fall back to .env on a cold process.
+    try:
+        await settings_service.warm()
+    except Exception:  # a settings table that is not migrated yet must not block startup
+        logger.warning("settings.warm_failed", exc_info=True)
     yield
     logger.info("app.shutdown")
 
@@ -56,4 +63,5 @@ app.include_router(images.router, prefix="/api/v1")
 app.include_router(files.router, prefix="/api/v1")
 app.include_router(subscription.router, prefix="/api/v1")
 app.include_router(credits.router, prefix="/api/v1")
+app.include_router(config.router, prefix="/api/v1")  # public model branding, no auth
 app.include_router(admin.router, prefix="/api/v1")

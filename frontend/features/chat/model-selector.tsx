@@ -1,6 +1,6 @@
 'use client';
 
-import { MODEL_LABELS } from '@/lib/model-labels';
+import { useModelLabel } from '@/features/branding/model-branding';
 import { cn } from '@/lib/utils';
 import type { ProviderName } from '@/types/api';
 
@@ -13,10 +13,12 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps) {
+  const labelFor = useModelLabel();
+
   return (
     <div className="inline-flex rounded-md border p-0.5" role="radiogroup" aria-label="Model">
       {OPTIONS.map((option) => {
-        const label = MODEL_LABELS[option];
+        const label = labelFor(option);
         return (
           <button
             key={option}

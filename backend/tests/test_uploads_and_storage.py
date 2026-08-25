@@ -7,6 +7,8 @@ from PIL import Image
 
 from app.services.storage.local_storage import LocalStorageProvider, PathTraversalError
 from app.utils.file_validation import FileValidationError, re_encode_image
+from app.core.config import get_settings
+from app.services import settings_service
 
 
 def _image_bytes(fmt="PNG", size=(64, 64)) -> bytes:
@@ -90,9 +92,8 @@ async def test_upload_rejects_extension_content_mismatch(client, user_factory):
 
 
 async def test_upload_rejects_oversized_file(client, user_factory, monkeypatch):
-    from app.utils import file_validation
-
-    monkeypatch.setattr(file_validation.settings, "max_upload_mb", 0)
+    monkeypatch.setattr(get_settings(), "max_upload_mb", 0)
+    settings_service.invalidate()
     user = await user_factory()
     resp = await client.post(
         "/api/v1/images/generate-with-upload",
@@ -105,9 +106,8 @@ async def test_upload_rejects_oversized_file(client, user_factory, monkeypatch):
 
 
 async def test_upload_rejects_oversized_dimensions(client, user_factory, monkeypatch):
-    from app.utils import file_validation
-
-    monkeypatch.setattr(file_validation.settings, "max_image_dimension", 32)
+    monkeypatch.setattr(get_settings(), "max_image_dimension", 32)
+    settings_service.invalidate()
     user = await user_factory()
     resp = await client.post(
         "/api/v1/images/generate-with-upload",

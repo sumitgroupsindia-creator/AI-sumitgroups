@@ -6,7 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCredits } from '@/hooks/use-credits';
-import { modelLabel } from '@/lib/model-labels';
+import { useModelLabel } from '@/features/branding/model-branding';
 import { formatDateTime } from '@/lib/utils';
 import * as billingService from '@/services/billing.service';
 import type { UsageRecord } from '@/types/api';
@@ -18,6 +18,7 @@ const OPERATION_LABEL: Record<string, string> = {
 };
 
 export default function UsageSettingsPage() {
+  const labelFor = useModelLabel();
   const { credits, loading: creditsLoading } = useCredits();
   const [records, setRecords] = useState<UsageRecord[] | null>(null);
 
@@ -75,7 +76,7 @@ export default function UsageSettingsPage() {
                   {records.map((record) => (
                     <tr key={record.id} className="border-b last:border-0">
                       <td className="py-2.5 pr-4">{OPERATION_LABEL[record.operation] ?? record.operation}</td>
-                      <td className="py-2.5 pr-4 text-muted-foreground">{modelLabel(record.provider).slot}</td>
+                      <td className="py-2.5 pr-4 text-muted-foreground">{labelFor(record.provider).slot}</td>
                       <td className="py-2.5 pr-4 tabular-nums">{record.credits_consumed}</td>
                       <td className="py-2.5 pr-4">
                         <Badge variant={record.status === 'success' ? 'success' : 'destructive'} className="text-[10px]">

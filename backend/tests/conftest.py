@@ -17,9 +17,11 @@ os.environ.setdefault("STORAGE_PATH", "./storage_test")
 os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 from app.core.db import Base, get_db_session  # noqa: E402
+from app.services import settings_service  # noqa: E402
 from app.core.deps import get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.image import ProviderConfig  # noqa: E402
+from app.models.settings import ProviderBrand  # noqa: E402
 from app.models.billing import Plan  # noqa: E402
 
 # Must point at a schema dedicated to tests: the suite DROPs and recreates every table, so aiming
@@ -30,6 +32,15 @@ TEST_DATABASE_URL = os.environ.get(
 
 
 SYNC_TEST_DATABASE_URL = TEST_DATABASE_URL.replace("mysql+aiomysql://", "mysql+pymysql://")
+
+
+@pytest.fixture(autouse=True)
+def reset_settings_cache():
+    """Settings are cached for CACHE_TTL_SECONDS, which would otherwise carry one test's override
+    into the next. Clearing on both sides keeps each test's configuration its own."""
+    settings_service.invalidate()
+    yield
+    settings_service.invalidate()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -91,6 +102,15 @@ async def seeded_db(db_session: AsyncSession) -> AsyncSession:
                                credit_cost=10, display_name="Gemini"),
             ]
         )
+        # Mirrors the 0003 migration seed; the tests build the schema from metadata, not migrations.
+        db_session.add_all(
+            [
+                ProviderBrand(provider="openai", slot="Model 1", tier="Standard",
+                              description="Balanced quality and speed.", sort_order=1),
+                ProviderBrand(provider="gemini", slot="Model 2", tier="Premium",
+                              description="Alternative interpretation.", sort_order=2),
+            ]
+        )
         await db_session.commit()
     return db_session
 
@@ -113,7 +133,11 @@ async def client(engine, seeded_db) -> AsyncIterator[AsyncClient]:
     import app.services.image_service as image_service
     import app.services.image_orchestrator as image_orchestrator
 
+    import app.services.settings_service as settings_service_module
+
     core_db.AsyncSessionLocal = session_factory
+    # Settings normally read through their own unpooled engine; point that at the test engine too.
+    settings_service_module._session_factory = session_factory
     chat_service.AsyncSessionLocal = session_factory
     image_service.AsyncSessionLocal = session_factory
     image_orchestrator.AsyncSessionLocal = session_factory

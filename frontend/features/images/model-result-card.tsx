@@ -6,7 +6,7 @@ import { AlertCircle, Download, Loader2, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { fetchAuthedBlobUrl } from '@/lib/api-client';
-import { modelLabel } from '@/lib/model-labels';
+import { useModelLabel } from '@/features/branding/model-branding';
 import * as imageService from '@/services/image.service';
 import type { GenerationResult } from '@/types/api';
 
@@ -24,7 +24,7 @@ interface ModelResultCardProps {
 export function ModelResultCard({ result, onRegenerate, regenerating }: ModelResultCardProps) {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
-  const label = modelLabel(result.provider);
+  const label = useModelLabel()(result.provider);
 
   useEffect(() => {
     if (!result.image_url) {

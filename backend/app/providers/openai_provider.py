@@ -1,24 +1,31 @@
 import base64
+from functools import lru_cache
 from typing import AsyncIterator
 
 from openai import APIError, APIStatusError, APITimeoutError, AsyncOpenAI
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from app.core.config import get_settings
 from app.providers.base import ChatMessage, ChatProvider, ImageProvider, ImageResult, ProviderError
+from app.services import settings_service
 
-settings = get_settings()
+
+@lru_cache(maxsize=4)
+def _client_for(api_key: str) -> AsyncOpenAI:
+    """One client per distinct key. Rotating the key in the admin UI produces a new client on the
+    next call and lets the old one fall out of the cache, so no restart is needed."""
+    return AsyncOpenAI(api_key=api_key, timeout=60.0)
 
 
 class OpenAIProvider(ChatProvider, ImageProvider):
     name = "openai"
 
-    def __init__(self) -> None:
-        self._client = AsyncOpenAI(api_key=settings.openai_api_key, timeout=60.0)
+    async def _client(self) -> AsyncOpenAI:
+        return _client_for(await settings_service.get_str("openai_api_key"))
 
     async def stream_chat(self, messages: list[ChatMessage], model: str) -> AsyncIterator[str]:
         try:
-            stream = await self._client.chat.completions.create(
+            client = await self._client()
+            stream = await client.chat.completions.create(
                 model=model,
                 messages=[{"role": m.role, "content": m.content} for m in messages],
                 stream=True,
@@ -46,14 +53,14 @@ class OpenAIProvider(ChatProvider, ImageProvider):
     ) -> ImageResult:
         try:
             if input_image is not None:
-                result = await self._client.images.edit(
+                result = await (await self._client()).images.edit(
                     model=model,
                     image=("input.png", input_image, input_mime or "image/png"),
                     prompt=prompt,
                     size="1024x1024",
                 )
             else:
-                result = await self._client.images.generate(
+                result = await (await self._client()).images.generate(
                     model=model,
                     prompt=prompt,
                     size="1024x1024",

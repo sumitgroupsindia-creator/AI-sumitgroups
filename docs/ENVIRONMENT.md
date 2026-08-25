@@ -5,6 +5,24 @@ Every variable the application reads, what it does, and how to obtain a value.
 Copy `.env.example` to `.env` and fill it in. **Never commit `.env`** — it is gitignored, and only
 `.env.example` (with empty placeholders) belongs in version control.
 
+## Two kinds of configuration
+
+Some of these variables can be changed from **Admin → Settings** in the running application, and
+some cannot. The line between them is whether the application needs the value *before* it can reach
+the database:
+
+| | Where it lives | Examples |
+|---|---|---|
+| **Bootstrap** | `.env` only | `DATABASE_URL`, `REDIS_URL`, `CELERY_*`, `JWT_SECRET`, `SETTINGS_ENCRYPTION_KEY`, `ENVIRONMENT`, `DEBUG`, `STORAGE_PATH`, `NEXT_PUBLIC_API_URL` |
+| **Runtime** | `.env` as the default, overridable at `/admin/settings` | Provider API keys, Razorpay credentials, SMTP, upload limits, rate limits |
+
+A runtime value saved in the admin panel wins over `.env` from then on, and takes effect within
+about 15 seconds without a restart — editing `.env` afterwards will appear to do nothing. Secrets
+saved this way are encrypted at rest and are never returned by the API in readable form.
+
+`NEXT_PUBLIC_API_URL` is a third case: it is compiled into the frontend bundle at build time, so
+changing it requires rebuilding the frontend image, not just a restart.
+
 ## Core
 
 | Variable | Required | Default | Notes |
@@ -120,3 +138,7 @@ If Redis is unreachable the limiter **fails open** rather than taking the API do
 - [ ] `RAZORPAY_WEBHOOK_SECRET` set and the webhook registered in the Razorpay dashboard
 - [ ] `./storage` on persistent, backed-up disk
 - [ ] `.env` readable only by the deploying user (`chmod 600 .env`)
+- [ ] `SETTINGS_ENCRYPTION_KEY` set explicitly, so rotating `JWT_SECRET` later does not orphan every
+      secret saved from the admin panel
+- [ ] Admin accounts limited to people who should see provider billing — anyone with `is_admin` can
+      replace the API keys at `/admin/settings`

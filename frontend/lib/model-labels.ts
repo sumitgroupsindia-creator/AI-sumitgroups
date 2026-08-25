@@ -1,7 +1,12 @@
 import type { ProviderName } from '@/types/api';
 
 /**
- * Single source of truth for how models are presented to end users.
+ * Default presentation for model slots.
+ *
+ * These are the values the backend seeds, kept here so the UI paints correct labels before the
+ * branding request resolves and has something to fall back on if it fails. The live values come
+ * from `features/branding/model-branding` — read them with `useModelLabel`, not from this file, in
+ * anything a customer sees.
  *
  * The underlying provider names (OpenAI, Gemini) are deliberately never shown in the customer-facing
  * UI — users see neutral, product-owned labels instead. This keeps the branding ours and lets a

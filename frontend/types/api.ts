@@ -137,3 +137,53 @@ export interface ProviderConfig {
   credit_cost: number;
   display_name: string;
 }
+
+/** How a provider slot is named for customers. Editable at /admin/branding. */
+export interface ProviderBrand {
+  id: string;
+  provider: string;
+  slot: string;
+  tier: string;
+  description: string;
+  sort_order: number;
+}
+
+/** The public, unauthenticated view of a slot — branding and prices, never model identifiers. */
+export interface PublicModelSlot {
+  provider: string;
+  slot: string;
+  tier: string;
+  description: string;
+  chat_enabled: boolean;
+  image_enabled: boolean;
+  chat_credit_cost: number;
+  image_credit_cost: number;
+}
+
+export type SettingKind = 'string' | 'int' | 'bool' | 'secret' | 'select';
+
+export interface AdminSetting {
+  key: string;
+  label: string;
+  group: string;
+  kind: SettingKind;
+  help: string;
+  options: string[];
+  /** Always empty for secrets — the API never returns them in readable form. */
+  value: string;
+  masked: string;
+  is_secret: boolean;
+  is_set: boolean;
+  source: 'database' | 'environment';
+  /** Sealed with an encryption key this deployment no longer holds; must be re-entered. */
+  unreadable: boolean;
+}
+
+export interface AdminSettingAudit {
+  id: string;
+  key: string;
+  actor_email: string;
+  old_preview: string;
+  new_preview: string;
+  created_at: string;
+}

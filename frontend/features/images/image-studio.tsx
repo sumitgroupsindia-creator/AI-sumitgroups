@@ -9,7 +9,7 @@ import { ModelResultCard } from '@/features/images/model-result-card';
 import { useCredits } from '@/hooks/use-credits';
 import { useGenerationPolling } from '@/hooks/use-generation-polling';
 import { ApiError } from '@/lib/api-client';
-import { modelLabel } from '@/lib/model-labels';
+import { useModelLabel } from '@/features/branding/model-branding';
 import * as imageService from '@/services/image.service';
 import { cn } from '@/lib/utils';
 import type { GenerationRequest, ProviderName } from '@/types/api';
@@ -25,6 +25,7 @@ const MODE_PROVIDERS: Record<Mode, ProviderName[]> = {
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp'];
 
 export function ImageStudio({ initialGeneration = null }: { initialGeneration?: GenerationRequest | null }) {
+  const labelFor = useModelLabel();
   const [prompt, setPrompt] = useState('');
   const [mode, setMode] = useState<Mode>('both');
   const [file, setFile] = useState<File | null>(null);
@@ -167,13 +168,13 @@ export function ImageStudio({ initialGeneration = null }: { initialGeneration?: 
                   role="radio"
                   aria-checked={mode === option}
                   onClick={() => setMode(option)}
-                  title={option === 'both' ? 'Run both models' : modelLabel(option).description}
+                  title={option === 'both' ? 'Run both models' : labelFor(option).description}
                   className={cn(
                     'rounded px-3 py-1 text-xs font-medium transition-colors',
                     mode === option ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  {option === 'both' ? 'Both' : modelLabel(option).slot}
+                  {option === 'both' ? 'Both' : labelFor(option).slot}
                 </button>
               ))}
             </div>

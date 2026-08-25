@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     jwt_secret: str
     jwt_algorithm: str = "HS256"
+    # Seals admin-managed secrets stored in app_settings. Falls back to jwt_secret when unset, so
+    # rotating jwt_secret without setting this also orphans those stored secrets.
+    settings_encryption_key: str = ""
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
 

@@ -10,6 +10,8 @@ from app.models.user import User
 from app.services import subscription_service
 from app.services.payment.base import CheckoutOrder, PaymentProvider, WebhookEvent
 from app.services.payment.razorpay_provider import RazorpayProvider, get_payment_provider
+from app.core.config import get_settings
+from app.services import settings_service
 
 
 WEBHOOK_SECRET = "test_webhook_secret"
@@ -234,9 +236,10 @@ def test_razorpay_signature_verification_is_constant_time_hmac(monkeypatch):
     """The real provider must verify with HMAC-SHA256 over the raw body, not trust the header."""
     from app.services.payment import razorpay_provider
 
-    monkeypatch.setattr(razorpay_provider.settings, "razorpay_webhook_secret", "s3cret")
-    monkeypatch.setattr(razorpay_provider.settings, "razorpay_key_id", "k")
-    monkeypatch.setattr(razorpay_provider.settings, "razorpay_key_secret", "k")
+    monkeypatch.setattr(get_settings(), "razorpay_webhook_secret", "s3cret")
+    monkeypatch.setattr(get_settings(), "razorpay_key_id", "k")
+    monkeypatch.setattr(get_settings(), "razorpay_key_secret", "k")
+    settings_service.invalidate()
     provider = RazorpayProvider()
 
     payload = b'{"event":"payment.captured"}'

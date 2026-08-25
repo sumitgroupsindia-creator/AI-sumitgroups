@@ -306,8 +306,37 @@ and model identifiers.
 | `GET /admin/plans` | All plans, including inactive |
 | `PATCH /admin/plans/{id}` | Change price, credit allowances, upload limit, active flag |
 | `GET /admin/models` | Provider configs with real model ids |
-| `PATCH /admin/models/{id}` | Enable/disable a model, change its credit cost or model id |
+| `PATCH /admin/models/{id}` | Enable/disable a model, change its credit cost, model id or admin label |
+| `GET /admin/brands` | Customer-facing slot names ("Model 1 · Standard") |
+| `PATCH /admin/brands/{id}` | Rename a slot, its tier or its description |
+| `GET /admin/settings` | Runtime configuration; secrets are masked, never returned in the clear |
+| `PUT /admin/settings` | Save runtime configuration — see below |
+| `GET /admin/settings/audit` | Who changed which setting, with secret values masked |
 | `GET /admin/generations/failed` | Recent failures with the underlying error, for debugging |
+
+### `PUT /admin/settings` → 200
+
+```json
+{ "values": { "openai_api_key": "sk-...", "rate_limit_per_minute": "120" } }
+```
+
+Only keys in the server's catalog are accepted; anything else is ignored rather than rejected, so a
+stale form cannot fail the whole save. Submitting a secret as `""` **leaves it unchanged** — the API
+never returns a secret's value, so a blank field is what an untouched form always looks like. To
+change a secret, send the new value.
+
+Returns the full settings list in the same shape as `GET`.
+
+---
+
+## Config (public)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /config/models` | Customer-facing model slots: name, tier, description, whether chat/image are enabled, credit costs |
+
+Unauthenticated, because the same branding appears on the marketing pages. It carries no model
+identifiers — those stay behind the admin endpoints.
 
 ---
 

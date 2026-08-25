@@ -4,10 +4,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.core.config import get_settings
 from app.core.deps import get_redis
-
-settings = get_settings()
+from app.services import settings_service
 
 _AUTH_PATHS = {"/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/forgot-password"}
 
@@ -18,7 +16,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if not settings.rate_limit_enabled:
+        if not await settings_service.get_bool("rate_limit_enabled"):
             return await call_next(request)
         if not path.startswith("/api/v1/") or path in ("/api/v1/health", "/api/v1/ready"):
             return await call_next(request)
@@ -28,10 +26,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         identity = auth_header[-24:] if auth_header else client_ip
 
         if path in _AUTH_PATHS:
-            limit = settings.auth_rate_limit_per_minute
+            limit = await settings_service.get_int("auth_rate_limit_per_minute", 10)
             key = f"ratelimit:auth:{client_ip}"
         else:
-            limit = settings.rate_limit_per_minute
+            limit = await settings_service.get_int("rate_limit_per_minute", 60)
             key = f"ratelimit:api:{identity}"
 
         window = int(time.time() // 60)

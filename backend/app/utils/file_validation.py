@@ -3,9 +3,7 @@ import io
 from fastapi import UploadFile
 from PIL import Image
 
-from app.core.config import get_settings
-
-settings = get_settings()
+from app.services import settings_service
 
 _MIME_TO_EXT = {
     "image/jpeg": {"jpg", "jpeg"},
@@ -22,14 +20,14 @@ async def validate_image_upload(file: UploadFile) -> tuple[bytes, str, int, int]
     """Reads, sniffs, and validates an uploaded image. Returns (bytes, mime_type, width, height).
     Never trusts the client-supplied filename or Content-Type header for anything beyond a hint."""
     data = await file.read()
-    max_bytes = settings.max_upload_mb * 1024 * 1024
+    max_mb = await settings_service.get_int("max_upload_mb", 10)
     if len(data) == 0:
         raise FileValidationError("Empty file")
-    if len(data) > max_bytes:
-        raise FileValidationError(f"File exceeds {settings.max_upload_mb}MB limit")
+    if len(data) > max_mb * 1024 * 1024:
+        raise FileValidationError(f"File exceeds {max_mb}MB limit")
 
     ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
-    if ext not in settings.allowed_extensions_list:
+    if ext not in await settings_service.get_csv("allowed_upload_extensions"):
         raise FileValidationError(f"Extension .{ext} is not allowed")
 
     try:
@@ -49,8 +47,9 @@ async def validate_image_upload(file: UploadFile) -> tuple[bytes, str, int, int]
     if detected_mime is None or ext not in _MIME_TO_EXT.get(detected_mime, set()):
         raise FileValidationError("File content does not match its extension")
 
-    if width > settings.max_image_dimension or height > settings.max_image_dimension:
-        raise FileValidationError(f"Image dimensions exceed {settings.max_image_dimension}px")
+    max_dimension = await settings_service.get_int("max_image_dimension", 4096)
+    if width > max_dimension or height > max_dimension:
+        raise FileValidationError(f"Image dimensions exceed {max_dimension}px")
 
     return data, detected_mime, width, height
 

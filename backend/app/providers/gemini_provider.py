@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import AsyncIterator
 
 from google import genai
@@ -5,17 +6,21 @@ from google.genai import types
 from google.genai.errors import APIError, ClientError, ServerError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from app.core.config import get_settings
 from app.providers.base import ChatMessage, ChatProvider, ImageProvider, ImageResult, ProviderError
+from app.services import settings_service
 
-settings = get_settings()
+
+@lru_cache(maxsize=4)
+def _client_for(api_key: str) -> genai.Client:
+    """One client per distinct key, so a key rotated in the admin UI takes effect without a restart."""
+    return genai.Client(api_key=api_key)
 
 
 class GeminiProvider(ChatProvider, ImageProvider):
     name = "gemini"
 
-    def __init__(self) -> None:
-        self._client = genai.Client(api_key=settings.gemini_api_key)
+    async def _client(self) -> genai.Client:
+        return _client_for(await settings_service.get_str("gemini_api_key"))
 
     async def stream_chat(self, messages: list[ChatMessage], model: str) -> AsyncIterator[str]:
         history = [
@@ -23,7 +28,8 @@ class GeminiProvider(ChatProvider, ImageProvider):
             for m in messages
         ]
         try:
-            stream = await self._client.aio.models.generate_content_stream(model=model, contents=history)
+            client = await self._client()
+            stream = await client.aio.models.generate_content_stream(model=model, contents=history)
             async for chunk in stream:
                 if chunk.text:
                     yield chunk.text
@@ -47,7 +53,7 @@ class GeminiProvider(ChatProvider, ImageProvider):
             parts.insert(0, types.Part.from_bytes(data=input_image, mime_type=input_mime or "image/png"))
 
         try:
-            response = await self._client.aio.models.generate_content(
+            response = await (await self._client()).aio.models.generate_content(
                 model=model,
                 contents=[types.Content(role="user", parts=parts)],
                 config=types.GenerateContentConfig(response_modalities=["IMAGE"]),

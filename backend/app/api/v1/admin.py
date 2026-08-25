@@ -9,15 +9,22 @@ from app.core.deps import get_admin_user, get_db
 from app.models.billing import Subscription
 from app.models.chat import Conversation
 from app.models.image import GenerationRequest, GenerationResult, ProviderConfig
+from app.models.settings import AppSettingAudit, ProviderBrand
 from app.models.user import User
 from app.schemas.admin import (
+    AdminProviderBrandResponse,
     AdminProviderConfigResponse,
+    AdminSettingAuditResponse,
+    AdminSettingResponse,
     AdminStatsResponse,
     AdminUpdatePlanRequest,
+    AdminUpdateProviderBrandRequest,
     AdminUpdateProviderConfigRequest,
+    AdminUpdateSettingsRequest,
     AdminUpdateUserRequest,
     AdminUserResponse,
 )
+from app.services import settings_service
 from app.schemas.billing import PlanResponse
 from app.schemas.image import AdminGenerationResultResponse
 from app.models.billing import Plan
@@ -130,3 +137,52 @@ async def list_failed_generations(
         )
         for r in results
     ]
+
+
+@router.get("/brands", response_model=list[AdminProviderBrandResponse])
+async def list_provider_brands(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(ProviderBrand).order_by(ProviderBrand.sort_order))
+    return result.scalars().all()
+
+
+@router.patch("/brands/{brand_id}", response_model=AdminProviderBrandResponse)
+async def update_provider_brand(
+    brand_id: UUID, payload: AdminUpdateProviderBrandRequest, db: AsyncSession = Depends(get_db)
+):
+    """Rename a customer-facing slot — "Model 1", its tier, its blurb.
+
+    Takes effect for every user on their next page load; nothing here touches which provider
+    actually serves the slot, which is the Models screen's job.
+    """
+    result = await db.execute(select(ProviderBrand).where(ProviderBrand.id == brand_id))
+    brand = result.scalar_one_or_none()
+    if brand is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider brand not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(brand, field, value)
+    await db.commit()
+    await db.refresh(brand)
+    return brand
+
+
+@router.get("/settings", response_model=list[AdminSettingResponse])
+async def list_settings(db: AsyncSession = Depends(get_db)):
+    return await settings_service.snapshot_for_admin(db)
+
+
+@router.put("/settings", response_model=list[AdminSettingResponse])
+async def update_settings(
+    payload: AdminUpdateSettingsRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+):
+    await settings_service.apply_changes(db, payload.values, actor_id=admin.id, actor_email=admin.email)
+    return await settings_service.snapshot_for_admin(db)
+
+
+@router.get("/settings/audit", response_model=list[AdminSettingAuditResponse])
+async def list_setting_audit(db: AsyncSession = Depends(get_db), limit: int = Query(50, le=200)):
+    result = await db.execute(
+        select(AppSettingAudit).order_by(AppSettingAudit.created_at.desc()).limit(limit)
+    )
+    return result.scalars().all()

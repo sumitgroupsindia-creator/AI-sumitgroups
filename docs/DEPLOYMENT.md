@@ -67,7 +67,25 @@ Put it in `JWT_SECRET`, then lock the file down:
 chmod 600 .env
 ```
 
+Generate a second secret for the settings store, so rotating `JWT_SECRET` later does not make
+admin-saved secrets unreadable:
+
+```bash
+openssl rand -hex 32
+```
+
+Put that in `SETTINGS_ENCRYPTION_KEY`, then lock the file down:
+
+```bash
+chmod 600 .env
+```
+
 `docs/ENVIRONMENT.md` documents every variable and has a production checklist.
+
+> Provider API keys, Razorpay credentials, SMTP and the upload/rate limits only need to be in `.env`
+> to get started — from then on they are editable at **Admin → Settings** in the running app, and a
+> value saved there overrides `.env`. Infrastructure (`DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`)
+> stays in `.env`, because the app needs it before it can read the database.
 
 > `NEXT_PUBLIC_API_URL` is compiled into the frontend **at build time**. Changing it later requires
 > `docker compose build frontend`, not just a restart.
@@ -116,6 +134,10 @@ docker compose exec mysql mysql -u root -p"$MYSQL_ROOT_PASSWORD" ai_saas -e "UPD
 
 Sign out and back in — the admin flag is carried in the token. `/admin` will then appear in the sidebar.
 
+From there, **Settings** holds the provider keys and limits, and **Branding** renames the model slots
+customers see ("Model 1 · Standard"). Anyone with `is_admin` can read and replace those keys, so keep
+the admin list short.
+
 ## 7. Razorpay webhook
 
 In the Razorpay dashboard → Settings → Webhooks, add:
@@ -142,11 +164,24 @@ same id shown to the user in any error message.
 
 ### Updating
 
+Pushing to `main` deploys automatically — see `.github/workflows/deploy.yml`. Images are built on
+GitHub's runners and pushed to GHCR, then the VPS pulls them; nothing is compiled on the server. The
+workflow deploys the exact commit SHA rather than a mutable `:latest`, and fails if
+`https://ai.sumitgroups.com/ready` does not come back healthy within two minutes.
+
+The repository secrets it needs are `VPS_HOST`, `VPS_USER` and `VPS_SSH_KEY`.
+
+To deploy by hand — a rollback, or when Actions is unavailable:
+
 ```bash
-cd /opt/ai-sumitgroups && git pull && docker compose up -d --build
+cd /opt/ai-sumitgroups && git pull && IMAGE_TAG=<sha> docker compose pull && docker compose up -d
 ```
 
 Migrations run automatically via the `migrate` service before the app starts.
+
+> The deploy does `git reset --hard origin/main` on the server. `.env` and `storage/` are untracked,
+> so they survive — but any hand-edit to a *tracked* file on the VPS will be discarded. Server-specific
+> tuning belongs in `.env` (this is why worker concurrency is `CELERY_CONCURRENCY`, not a file edit).
 
 ### Backups
 
