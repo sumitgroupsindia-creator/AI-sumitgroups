@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /$
+Allow: /pricing
+
+# Authenticated areas hold private user data and have no crawlable content.
+Disallow: /chat
+Disallow: /images
+Disallow: /settings
+Disallow: /admin
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+Disallow: /reset-password
+Disallow: /forgot-password
+
+Sitemap: https://ai.sumitgroups.com/sitemap.xml
