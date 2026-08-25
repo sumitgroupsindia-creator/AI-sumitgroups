@@ -24,7 +24,14 @@ interface PendingAssistant {
   error: string | null;
 }
 
-export function ChatInterface({ conversationId, initialMessages = [], initialProvider }: ChatInterfaceProps) {
+// Stable identity: a fresh `[]` default would change on every render and re-trigger the sync effect.
+const NO_MESSAGES: Message[] = [];
+
+export function ChatInterface({
+  conversationId,
+  initialMessages = NO_MESSAGES,
+  initialProvider,
+}: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [pending, setPending] = useState<PendingAssistant | null>(null);
   const [input, setInput] = useState('');
@@ -37,9 +44,13 @@ export function ChatInterface({ conversationId, initialMessages = [], initialPro
   const router = useRouter();
   const { refresh: refreshCredits } = useCredits();
 
+  // Reset when the route switches to a different conversation, not on every parent render.
   useEffect(() => {
     setMessages(initialMessages);
-  }, [initialMessages]);
+    setPending(null);
+    setLastPrompt(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the conversation, not the array identity
+  }, [conversationId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -67,12 +78,17 @@ export function ChatInterface({ conversationId, initialMessages = [], initialPro
       setPending({ content: '', error: null });
       setStreaming(true);
 
+      let failed = false;
+
       abortRef.current = chatService.streamChat(
         { conversationId, message: trimmed, provider },
         {
           onDelta: (chunk) =>
             setPending((prev) => (prev ? { ...prev, content: prev.content + chunk } : { content: chunk, error: null })),
-          onError: (message) => setPending((prev) => ({ content: prev?.content ?? '', error: message })),
+          onError: (message) => {
+            failed = true;
+            setPending((prev) => ({ content: prev?.content ?? '', error: message }));
+          },
           onDone: (returnedId) => {
             setStreaming(false);
             setPending((prev) => {
@@ -94,7 +110,9 @@ export function ChatInterface({ conversationId, initialMessages = [], initialPro
               }
               return prev; // keep the error card visible
             });
-            if (!conversationId && returnedId) router.push(`/chat/${returnedId}`);
+            // Navigating remounts this component from server state, which would drop the error
+            // card and its Retry button — so stay put when the turn failed.
+            if (!failed && !conversationId && returnedId) router.push(`/chat/${returnedId}`);
           },
         },
       );
@@ -216,7 +234,7 @@ export function ChatInterface({ conversationId, initialMessages = [], initialPro
           <p className="mt-2 text-center text-xs text-muted-foreground">
             Want to compare image models?{' '}
             <a href="/images" className="underline underline-offset-2">
-              Generate with OpenAI and Gemini side by side
+              Generate with two models side by side
             </a>
             .
           </p>

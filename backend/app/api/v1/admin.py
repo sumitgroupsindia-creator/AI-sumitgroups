@@ -19,7 +19,7 @@ from app.schemas.admin import (
     AdminUserResponse,
 )
 from app.schemas.billing import PlanResponse
-from app.schemas.image import GenerationResultResponse
+from app.schemas.image import AdminGenerationResultResponse
 from app.models.billing import Plan
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(get_admin_user)])
@@ -111,7 +111,7 @@ async def update_provider_config(
     return config
 
 
-@router.get("/generations/failed", response_model=list[GenerationResultResponse])
+@router.get("/generations/failed", response_model=list[AdminGenerationResultResponse])
 async def list_failed_generations(
     db: AsyncSession = Depends(get_db), limit: int = Query(50, le=200), offset: int = Query(0, ge=0)
 ):
@@ -124,7 +124,7 @@ async def list_failed_generations(
     )
     results = result.scalars().all()
     return [
-        GenerationResultResponse(
+        AdminGenerationResultResponse(
             id=r.id, provider=r.provider, model=r.model, status=r.status, error=r.error,
             image_url=None, thumbnail_url=None, created_at=r.created_at,
         )

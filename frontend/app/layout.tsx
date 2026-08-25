@@ -7,11 +7,11 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'One Prompt. Multiple AI Models. | ai.sumitgroups.com',
   description:
-    'Run one prompt through OpenAI and Google Gemini at the same time, then compare the results side by side.',
+    'Run one prompt through two advanced AI models at the same time, then compare the results side by side.',
   metadataBase: new URL('https://ai.sumitgroups.com'),
   openGraph: {
     title: 'One Prompt. Multiple AI Models. Better Results.',
-    description: 'Compare OpenAI and Gemini image generations side by side.',
+    description: 'Compare two AI image models side by side, from a single prompt.',
     url: 'https://ai.sumitgroups.com',
     siteName: 'ai.sumitgroups.com',
   },

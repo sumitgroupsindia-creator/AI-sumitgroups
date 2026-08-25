@@ -52,9 +52,10 @@ class CreditsResponse(BaseModel):
 
 
 class UsageRecordResponse(BaseModel):
+    """`model` is omitted deliberately — users see neutral model slots, not vendor model ids."""
+
     id: UUID
     provider: str
-    model: str
     operation: str
     credits_consumed: int
     status: str

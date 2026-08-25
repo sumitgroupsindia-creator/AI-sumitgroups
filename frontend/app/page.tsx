@@ -13,7 +13,7 @@ const FEATURES = [
     icon: Columns2,
     title: 'Side-by-side comparison',
     description:
-      'Every image prompt runs through OpenAI and Gemini at once. Both results land in the same view, labelled Model 1 and Model 2.',
+      'Every image prompt runs through two independent models at once. Both results land in the same view, labelled Model 1 and Model 2.',
   },
   {
     icon: Zap,
@@ -56,7 +56,7 @@ const STEPS = [
 const FAQS = [
   {
     q: 'Which models does the platform use?',
-    a: 'Chat and image generation run on OpenAI and Google Gemini. Models are configured server-side and can be changed by an administrator without any code release.',
+    a: 'Model 1 (Standard) and Model 2 (Premium) are two independent, industry-leading AI engines. We select and tune them for you, and can upgrade either one without you changing anything in your workflow.',
   },
   {
     q: 'What happens if one provider fails?',
@@ -123,7 +123,7 @@ export default function LandingPage() {
             One Prompt. Multiple AI Models. Better Results.
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-lg text-muted-foreground">
-            Stop guessing which model handles your prompt best. Run it through OpenAI and Google Gemini
+            Stop guessing which model handles your prompt best. Run it through two advanced AI models
             simultaneously and compare both results side by side.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
@@ -273,13 +273,15 @@ function ComparisonDemo() {
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           {[
-            { slot: 'Model 1', name: 'OpenAI' },
-            { slot: 'Model 2', name: 'Gemini' },
+            { slot: 'Model 1', tier: 'Standard' },
+            { slot: 'Model 2', tier: 'Premium' },
           ].map((model) => (
-            <div key={model.name} className="overflow-hidden rounded-lg border">
+            <div key={model.slot} className="overflow-hidden rounded-lg border">
               <div className="flex items-center justify-between border-b px-3 py-2">
-                <span className="text-xs text-muted-foreground">{model.slot}</span>
-                <span className="text-sm font-medium">{model.name}</span>
+                <span className="text-sm font-medium">{model.slot}</span>
+                <span className="rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
+                  {model.tier}
+                </span>
               </div>
               <div className="flex aspect-square items-center justify-center bg-gradient-to-br from-muted/80 to-muted/30">
                 <Sparkles className="h-6 w-6 text-muted-foreground/40" />

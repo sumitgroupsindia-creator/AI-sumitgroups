@@ -1,12 +1,10 @@
 'use client';
 
+import { MODEL_LABELS } from '@/lib/model-labels';
 import { cn } from '@/lib/utils';
 import type { ProviderName } from '@/types/api';
 
-const OPTIONS: { value: ProviderName; label: string }[] = [
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'gemini', label: 'Gemini' },
-];
+const OPTIONS: ProviderName[] = ['openai', 'gemini'];
 
 interface ModelSelectorProps {
   value: ProviderName;
@@ -17,24 +15,27 @@ interface ModelSelectorProps {
 export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps) {
   return (
     <div className="inline-flex rounded-md border p-0.5" role="radiogroup" aria-label="Model">
-      {OPTIONS.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={value === option.value}
-          disabled={disabled}
-          onClick={() => onChange(option.value)}
-          className={cn(
-            'rounded px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50',
-            value === option.value
-              ? 'bg-primary text-primary-foreground'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
+      {OPTIONS.map((option) => {
+        const label = MODEL_LABELS[option];
+        return (
+          <button
+            key={option}
+            type="button"
+            role="radio"
+            aria-checked={value === option}
+            aria-label={`${label.slot}, ${label.tier}`}
+            title={label.description}
+            disabled={disabled}
+            onClick={() => onChange(option)}
+            className={cn(
+              'rounded px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50',
+              value === option ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {label.slot}
+          </button>
+        );
+      })}
     </div>
   );
 }

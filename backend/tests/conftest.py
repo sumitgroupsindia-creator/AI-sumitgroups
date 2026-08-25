@@ -22,8 +22,10 @@ from app.main import app  # noqa: E402
 from app.models.image import ProviderConfig  # noqa: E402
 from app.models.billing import Plan  # noqa: E402
 
+# Must point at a schema dedicated to tests: the suite DROPs and recreates every table, so aiming
+# it at a development database would silently destroy that data.
 TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL", "mysql+aiomysql://test:test@127.0.0.1:53306/test?charset=utf8mb4"
+    "TEST_DATABASE_URL", "mysql+aiomysql://test:test@127.0.0.1:53306/ai_saas_test?charset=utf8mb4"
 )
 
 

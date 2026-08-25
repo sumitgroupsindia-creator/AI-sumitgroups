@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api-client';
-import type { AdminStats, AdminUser, GenerationResult, Plan, ProviderConfig } from '@/types/api';
+import type { AdminGenerationResult, AdminStats, AdminUser, Plan, ProviderConfig } from '@/types/api';
 
 export function getStats(): Promise<AdminStats> {
   return apiFetch<AdminStats>('/admin/stats');
@@ -38,6 +38,6 @@ export function updateProviderConfig(
   return apiFetch<ProviderConfig>(`/admin/models/${id}`, { method: 'PATCH', body: patch });
 }
 
-export function listFailedGenerations(limit = 50): Promise<GenerationResult[]> {
-  return apiFetch<GenerationResult[]>(`/admin/generations/failed?limit=${limit}`);
+export function listFailedGenerations(limit = 50): Promise<AdminGenerationResult[]> {
+  return apiFetch<AdminGenerationResult[]>(`/admin/generations/failed?limit=${limit}`);
 }

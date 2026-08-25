@@ -90,7 +90,7 @@ export function PricingTable() {
                 <ul className="flex-1 space-y-2.5 text-sm">
                   <Feature>{plan.monthly_chat_credits.toLocaleString()} chat credits per month</Feature>
                   <Feature>{plan.monthly_image_credits.toLocaleString()} image credits per month</Feature>
-                  <Feature>Compare OpenAI and Gemini side by side</Feature>
+                  <Feature>Compare Model 1 and Model 2 side by side</Feature>
                   <Feature>Upload photos up to {plan.max_upload_mb} MB</Feature>
                   {plan.priority_queue && <Feature>Priority generation queue</Feature>}
                 </ul>

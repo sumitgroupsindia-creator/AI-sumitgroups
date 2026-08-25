@@ -6,10 +6,10 @@ import { Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { formatDateTime } from '@/lib/utils';
 import * as adminService from '@/services/admin.service';
-import type { GenerationResult } from '@/types/api';
+import type { AdminGenerationResult } from '@/types/api';
 
 export default function AdminFailuresPage() {
-  const [failures, setFailures] = useState<GenerationResult[] | null>(null);
+  const [failures, setFailures] = useState<AdminGenerationResult[] | null>(null);
 
   useEffect(() => {
     void adminService.listFailedGenerations().then(setFailures).catch(() => setFailures([]));

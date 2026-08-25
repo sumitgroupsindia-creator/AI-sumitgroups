@@ -36,7 +36,6 @@ def _to_result_response(result: GenerationResult) -> GenerationResultResponse:
     return GenerationResultResponse(
         id=result.id,
         provider=result.provider,
-        model=result.model,
         status=result.status,
         error=result.error,
         image_url=image_url,

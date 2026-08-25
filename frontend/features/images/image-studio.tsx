@@ -9,6 +9,7 @@ import { ModelResultCard } from '@/features/images/model-result-card';
 import { useCredits } from '@/hooks/use-credits';
 import { useGenerationPolling } from '@/hooks/use-generation-polling';
 import { ApiError } from '@/lib/api-client';
+import { modelLabel } from '@/lib/model-labels';
 import * as imageService from '@/services/image.service';
 import { cn } from '@/lib/utils';
 import type { GenerationRequest, ProviderName } from '@/types/api';
@@ -33,6 +34,9 @@ export function ImageStudio({ initialGeneration = null }: { initialGeneration?: 
   const [regeneratingProvider, setRegeneratingProvider] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // setState is async, so a fast double-click can pass the `submitting` check twice and be
+  // charged twice. A ref flips synchronously.
+  const inFlightRef = useRef(false);
   const { generation, setGeneration } = useGenerationPolling(initialGeneration);
   const { credits, refresh: refreshCredits } = useCredits();
 
@@ -54,8 +58,9 @@ export function ImageStudio({ initialGeneration = null }: { initialGeneration?: 
 
   const submit = useCallback(async () => {
     const trimmed = prompt.trim();
-    if (!trimmed || submitting) return;
+    if (!trimmed || inFlightRef.current) return;
 
+    inFlightRef.current = true;
     setSubmitting(true);
     setError(null);
     try {
@@ -162,12 +167,13 @@ export function ImageStudio({ initialGeneration = null }: { initialGeneration?: 
                   role="radio"
                   aria-checked={mode === option}
                   onClick={() => setMode(option)}
+                  title={option === 'both' ? 'Run both models' : modelLabel(option).description}
                   className={cn(
-                    'rounded px-3 py-1 text-xs font-medium capitalize transition-colors',
+                    'rounded px-3 py-1 text-xs font-medium transition-colors',
                     mode === option ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  {option === 'openai' ? 'Model 1' : option === 'gemini' ? 'Model 2' : 'Both'}
+                  {option === 'both' ? 'Both' : modelLabel(option).slot}
                 </button>
               ))}
             </div>
@@ -209,7 +215,6 @@ export function ImageStudio({ initialGeneration = null }: { initialGeneration?: 
           <div className="grid gap-4 md:grid-cols-2">
             {openaiResult && (
               <ModelResultCard
-                slot={1}
                 result={openaiResult}
                 onRegenerate={handleRegenerate}
                 regenerating={regeneratingProvider === 'openai'}
@@ -217,7 +222,6 @@ export function ImageStudio({ initialGeneration = null }: { initialGeneration?: 
             )}
             {geminiResult && (
               <ModelResultCard
-                slot={2}
                 result={geminiResult}
                 onRegenerate={handleRegenerate}
                 regenerating={regeneratingProvider === 'gemini'}

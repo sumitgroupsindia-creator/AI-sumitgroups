@@ -11,9 +11,12 @@ class GenerateImageRequest(BaseModel):
 
 
 class GenerationResultResponse(BaseModel):
+    """User-facing shape. `provider` is kept because the client needs it as a stable slot key for
+    regeneration, but the underlying vendor model id is deliberately omitted — the product presents
+    neutral "Model 1 / Model 2" labels and must not leak which vendor sits behind each slot."""
+
     id: UUID
     provider: str
-    model: str
     status: str
     error: str | None
     image_url: str | None = None
@@ -21,6 +24,12 @@ class GenerationResultResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AdminGenerationResultResponse(GenerationResultResponse):
+    """Admins configure the providers, so they do see the real model id."""
+
+    model: str
 
 
 class GenerationRequestResponse(BaseModel):

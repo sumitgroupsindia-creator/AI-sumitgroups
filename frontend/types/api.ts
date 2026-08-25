@@ -17,7 +17,7 @@ export interface TokenPair {
 export interface Conversation {
   id: string;
   title: string;
-  model: string;
+  /** Opaque slot key — render via lib/model-labels, never show the raw value to users. */
   provider: ProviderName;
   is_archived: boolean;
   created_at: string;
@@ -29,7 +29,6 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   provider: string | null;
-  model: string | null;
   error: string | null;
   created_at: string;
 }
@@ -42,8 +41,8 @@ export type GenerationStatus = 'pending' | 'processing' | 'completed' | 'failed'
 
 export interface GenerationResult {
   id: string;
+  /** Opaque slot key — render via lib/model-labels, never show the raw value to users. */
   provider: ProviderName;
-  model: string;
   status: GenerationStatus;
   error: string | null;
   image_url: string | null;
@@ -90,8 +89,8 @@ export interface Credits {
 
 export interface UsageRecord {
   id: string;
+  /** Opaque slot key — render via lib/model-labels, never show the raw value to users. */
   provider: string;
-  model: string;
   operation: string;
   credits_consumed: number;
   status: string;
@@ -122,6 +121,11 @@ export interface AdminUser {
   is_active: boolean;
   is_admin: boolean;
   created_at: string;
+}
+
+/** Admin-only: administrators configure providers, so they do see real vendor names and model ids. */
+export interface AdminGenerationResult extends GenerationResult {
+  model: string;
 }
 
 export interface ProviderConfig {

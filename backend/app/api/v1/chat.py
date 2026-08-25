@@ -33,7 +33,7 @@ async def chat_stream(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    model = payload.model or _DEFAULT_MODELS[payload.provider]
+    model = _DEFAULT_MODELS[payload.provider]
     request_id = new_request_id()
 
     try:

@@ -5,10 +5,12 @@ from pydantic import BaseModel, Field
 
 
 class ChatStreamRequest(BaseModel):
+    """`provider` is an opaque slot key ("Model 1"/"Model 2" in the UI). The concrete vendor model
+    is resolved server-side from provider_configs — clients cannot choose or even see it."""
+
     conversation_id: UUID | None = None
     message: str = Field(min_length=1, max_length=8000)
     provider: str = Field(default="openai", pattern="^(openai|gemini)$")
-    model: str | None = None
 
 
 class MessageResponse(BaseModel):
@@ -16,7 +18,6 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     provider: str | None
-    model: str | None
     error: str | None
     created_at: datetime
 
@@ -26,7 +27,6 @@ class MessageResponse(BaseModel):
 class ConversationResponse(BaseModel):
     id: UUID
     title: str
-    model: str
     provider: str
     is_archived: bool
     created_at: datetime
