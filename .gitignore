@@ -39,3 +39,6 @@ storage/temp/*
 
 # Logs
 *.log
+
+# Test-run artifacts (images written by the backend suite)
+backend/storage_test/
