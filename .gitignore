@@ -1,0 +1,41 @@
+# Env / secrets
+.env
+.env.*
+!.env.example
+backend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / frontend
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+*.tsbuildinfo
+.pnpm-store/
+
+# Storage (runtime data, not source)
+storage/images/generated/*
+storage/images/uploaded/*
+storage/images/thumbnails/*
+storage/temp/*
+!storage/images/generated/.gitkeep
+!storage/images/uploaded/.gitkeep
+!storage/images/thumbnails/.gitkeep
+!storage/temp/.gitkeep
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log

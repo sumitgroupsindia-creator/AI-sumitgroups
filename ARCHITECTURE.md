@@ -30,8 +30,11 @@ so they can be changed later without a rewrite.
 | Credit costs | Configurable per operation in `provider_configs`/`plans` tables, not hard-coded. Seed defaults: chat message = 1 credit / 1k tokens (rounded up), image generation = 10 credits per provider per image | Brief explicitly forbids hard-coding pricing/limits |
 | File size/dimension limits | Configurable via env (`MAX_UPLOAD_MB=10`, `MAX_IMAGE_DIMENSION=4096`), enforced server-side with Pillow | "Validate size/dimensions" |
 | Idempotency | `Idempotency-Key` header supported on `POST /images/generate*` and the Razorpay webhook; stored in `idempotency_keys` table | Prevents double-charging credits/webhook replay |
-| Testing frameworks | Backend: `pytest` + `pytest-asyncio` + `httpx.AsyncClient` against a test Postgres schema. Frontend: `vitest` + `@testing-library/react` for units, `playwright` for one critical e2e (signup→chat→image) | Standard, well-supported choices |
-| Package managers | Backend: `pip`/`poetry`-style `pyproject.toml`. Frontend: `pnpm` | pnpm is fastest for Docker layer caching |
+| Testing frameworks | Backend: `pytest` + `pytest-asyncio` + `httpx.AsyncClient` against a disposable MySQL test schema. Frontend: `vitest` + `@testing-library/react` for units, `playwright` for one critical e2e (signup→chat→image) | Standard, well-supported choices |
+| Package managers | Backend: `pip` + pinned `requirements.txt`. Frontend: `pnpm` | pnpm is fastest for Docker layer caching |
+| Database engine | **MySQL 8** (`mysql+aiomysql` async driver), chosen because the target hosting provides MySQL | UUID PKs use SQLAlchemy's generic `Uuid` type → `CHAR(32)` on MySQL, so the schema stays portable if it ever moves to Postgres |
+| UUID generation | Generated in Python (`default=uuid.uuid4`) rather than a DB function | MySQL has no `gen_random_uuid()`; app-side generation also lets the code know the id before INSERT |
+| Timestamps under MySQL | Columns are naive `DATETIME` with `DEFAULT CURRENT_TIMESTAMP`; the MySQL server runs with `--default-time-zone=+00:00` so all stored values are UTC | MySQL `DATETIME` cannot carry a timezone; forcing the server to UTC keeps values unambiguous |
 
 ## 3. High-level architecture
 
@@ -51,7 +54,7 @@ so they can be changed later without a rewrite.
                      ┌──────────────────────────────────┼───────────────────────────┐
                      │                                   │                            │
              ┌───────▼───────┐                  ┌────────▼────────┐         ┌─────────▼────────┐
-             │ PostgreSQL    │                  │ Redis            │         │ storage/ volume   │
+             │ MySQL 8       │                  │ Redis            │         │ storage/ volume   │
              │ (SQLAlchemy + │                  │ (cache, queue,   │         │ (uploaded/generated│
              │  Alembic)     │                  │  rate-limit,     │         │  images, local FS) │
              └───────────────┘                  │  celery broker)  │         └────────────────────┘
