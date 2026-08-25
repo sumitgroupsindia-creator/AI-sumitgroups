@@ -4,9 +4,18 @@ from typing import AsyncIterator
 
 
 @dataclass
+class ChatImage:
+    """An image the user attached to a chat turn, for the model to look at."""
+
+    data: bytes
+    mime_type: str
+
+
+@dataclass
 class ChatMessage:
     role: str  # user | assistant | system
     content: str
+    image: ChatImage | None = None
 
 
 @dataclass

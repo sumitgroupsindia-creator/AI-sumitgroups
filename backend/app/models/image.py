@@ -26,6 +26,11 @@ class GenerationRequest(Base, UUIDPKMixin, TimestampMixin):
     __table_args__ = (Index("ix_gen_requests_user_created", "user_id", "created_at"),)
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    # Set when the generation was started from a conversation, so chat replies and generated images
+    # can be replayed as one timeline. Null for generations made outside any conversation.
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     upload_file_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("uploaded_files.id", ondelete="SET NULL"), nullable=True

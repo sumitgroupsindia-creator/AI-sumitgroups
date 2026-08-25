@@ -34,7 +34,7 @@ async def test_upload_accepts_valid_png(client, seeded_db, user_factory, monkeyp
 
     monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
     monkeypatch.setattr(
-        "app.api.v1.images.get_storage_provider", lambda: LocalStorageProvider(str(tmp_path))
+        "app.services.upload_service.get_storage_provider", lambda: LocalStorageProvider(str(tmp_path))
     )
 
     resp = await client.post(
@@ -184,3 +184,38 @@ async def test_storage_read_missing_file_raises(tmp_path):
     storage = LocalStorageProvider(str(tmp_path))
     with pytest.raises(FileNotFoundError):
         await storage.read("images/generated", f"{uuid.uuid4()}.png")
+
+
+async def test_standalone_upload_returns_an_id_usable_as_a_chat_attachment(
+    client, seeded_db, user_factory, monkeypatch, tmp_path
+):
+    """Chat attachments need an upload that exists before any generation does."""
+    monkeypatch.setattr(
+        "app.services.upload_service.get_storage_provider", lambda: LocalStorageProvider(str(tmp_path))
+    )
+    user = await user_factory()
+
+    resp = await client.post(
+        "/api/v1/files/upload",
+        headers=user["headers"],
+        files={"file": ("photo.png", _image_bytes("PNG"), "image/png")},
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["content_type"] == "image/png"
+    assert body["original_filename"] == "photo.png"
+    assert body["id"]
+
+
+async def test_standalone_upload_rejects_a_non_image(client, user_factory, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "app.services.upload_service.get_storage_provider", lambda: LocalStorageProvider(str(tmp_path))
+    )
+    user = await user_factory()
+
+    resp = await client.post(
+        "/api/v1/files/upload",
+        headers=user["headers"],
+        files={"file": ("payload.png", b"not an image at all", "image/png")},
+    )
+    assert resp.status_code == 400

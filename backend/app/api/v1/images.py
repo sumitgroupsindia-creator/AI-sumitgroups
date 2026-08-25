@@ -1,4 +1,3 @@
-import uuid
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Header, Query, UploadFile, status
@@ -8,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.deps import get_current_user, get_db
 from app.core.logging import get_logger, new_request_id
-from app.models.image import GenerationRequest, GenerationResult, UploadedFile as UploadedFileModel
+from app.models.image import GenerationRequest, GenerationResult
 from app.models.user import User
 from app.providers.registry import AVAILABLE_PROVIDERS
 from app.schemas.image import (
@@ -18,10 +17,9 @@ from app.schemas.image import (
     RegenerateRequest,
     UploadedFileResponse,
 )
-from app.services import image_service
+from app.services import image_service, upload_service
 from app.services.credit_service import InsufficientCreditsError
-from app.services.storage.local_storage import get_storage_provider
-from app.utils.file_validation import FileValidationError, re_encode_image, validate_image_upload
+from app.utils.file_validation import FileValidationError
 from app.utils.idempotency import get_cached_response, store_response
 from app.workers.image_tasks import run_generation_task
 
@@ -44,11 +42,13 @@ def _to_result_response(result: GenerationResult) -> GenerationResultResponse:
     )
 
 
-def _to_request_response(gen_request: GenerationRequest) -> GenerationRequestResponse:
+def to_request_response(gen_request: GenerationRequest) -> GenerationRequestResponse:
     return GenerationRequestResponse(
         id=gen_request.id,
         prompt=gen_request.prompt,
         status=gen_request.status,
+        conversation_id=gen_request.conversation_id,
+        upload_file_id=gen_request.upload_file_id,
         created_at=gen_request.created_at,
         results=[_to_result_response(r) for r in gen_request.results],
     )
@@ -84,6 +84,7 @@ async def generate_images(
             providers=providers,
             upload_file_id=payload.upload_file_id,
             request_ref=request_ref,
+            conversation_id=payload.conversation_id,
         )
     except InsufficientCreditsError as exc:
         raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(exc))
@@ -92,7 +93,7 @@ async def generate_images(
 
     run_generation_task.delay(str(gen_request.id))
 
-    response = _to_request_response(gen_request)
+    response = to_request_response(gen_request)
     if idempotency_key:
         await store_response(db, user.id, idempotency_key, 202, response.model_dump())
         await db.commit()
@@ -104,31 +105,14 @@ async def generate_with_upload(
     file: UploadFile,
     prompt: str = Form(...),
     providers: str = Form("openai,gemini"),
+    conversation_id: UUID | None = Form(default=None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        data, mime_type, width, height = await validate_image_upload(file)
+        uploaded = await upload_service.store_upload(db, user_id=user.id, file=file)
     except FileValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-
-    clean_bytes = re_encode_image(data, mime_type)
-    ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[mime_type]
-    stored_filename = f"{uuid.uuid4()}.{ext}"
-    storage = get_storage_provider()
-    await storage.save("images/uploaded", stored_filename, clean_bytes)
-
-    uploaded = UploadedFileModel(
-        user_id=user.id,
-        stored_filename=stored_filename,
-        original_filename=file.filename or "upload",
-        content_type=mime_type,
-        size_bytes=len(clean_bytes),
-        width=width,
-        height=height,
-    )
-    db.add(uploaded)
-    await db.flush()
 
     provider_list = _validate_providers([p.strip() for p in providers.split(",") if p.strip()])
     request_ref = new_request_id()
@@ -141,12 +125,13 @@ async def generate_with_upload(
             providers=provider_list,
             upload_file_id=uploaded.id,
             request_ref=request_ref,
+            conversation_id=conversation_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     run_generation_task.delay(str(gen_request.id))
-    return _to_request_response(gen_request)
+    return to_request_response(gen_request)
 
 
 @router.get("", response_model=list[GenerationRequestResponse])
@@ -166,7 +151,7 @@ async def list_generations(
     requests = result.scalars().all()
     for r in requests:
         await db.refresh(r, attribute_names=["results"])
-    return [_to_request_response(r) for r in requests]
+    return [to_request_response(r) for r in requests]
 
 
 @router.get("/{generation_id}", response_model=GenerationRequestResponse)
@@ -180,7 +165,7 @@ async def get_generation(
     if gen_request is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Generation not found")
     await db.refresh(gen_request, attribute_names=["results"])
-    return _to_request_response(gen_request)
+    return to_request_response(gen_request)
 
 
 @router.post("/{generation_id}/regenerate", response_model=GenerationRequestResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -223,4 +208,4 @@ async def regenerate(
     for provider in providers:
         run_generation_task.delay(str(gen_request.id), provider)
 
-    return _to_request_response(gen_request)
+    return to_request_response(gen_request)

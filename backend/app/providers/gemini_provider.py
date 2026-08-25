@@ -16,6 +16,15 @@ def _client_for(api_key: str) -> genai.Client:
     return genai.Client(api_key=api_key)
 
 
+def _to_gemini_parts(message: ChatMessage) -> list[types.Part]:
+    """The image goes first: Gemini attends to it as context for the text that follows."""
+    parts: list[types.Part] = []
+    if message.image is not None:
+        parts.append(types.Part.from_bytes(data=message.image.data, mime_type=message.image.mime_type))
+    parts.append(types.Part(text=message.content))
+    return parts
+
+
 class GeminiProvider(ChatProvider, ImageProvider):
     name = "gemini"
 
@@ -24,7 +33,7 @@ class GeminiProvider(ChatProvider, ImageProvider):
 
     async def stream_chat(self, messages: list[ChatMessage], model: str) -> AsyncIterator[str]:
         history = [
-            types.Content(role="user" if m.role == "user" else "model", parts=[types.Part(text=m.content)])
+            types.Content(role="user" if m.role == "user" else "model", parts=_to_gemini_parts(m))
             for m in messages
         ]
         try:

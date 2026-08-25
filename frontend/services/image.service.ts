@@ -1,17 +1,30 @@
 import { API_BASE, apiFetch } from '@/lib/api-client';
 import { getAccessToken } from '@/lib/auth-storage';
-import type { GenerationRequest, ProviderName } from '@/types/api';
+import type { GenerationRequest, ProviderName, UploadedFile } from '@/types/api';
+
+/** Stores an image up front, so it can be attached to a chat turn as well as to a generation. */
+export function uploadImage(file: File): Promise<UploadedFile> {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetch<UploadedFile>('/files/upload', { method: 'POST', body: form });
+}
 
 export function generateImages(
   prompt: string,
   providers: ProviderName[],
   uploadFileId?: string,
+  conversationId?: string | null,
 ): Promise<GenerationRequest> {
   return apiFetch<GenerationRequest>('/images/generate', {
     method: 'POST',
     // A retry of the same click must not double-charge credits.
     headers: { 'Idempotency-Key': crypto.randomUUID() },
-    body: { prompt, providers, upload_file_id: uploadFileId ?? null },
+    body: {
+      prompt,
+      providers,
+      upload_file_id: uploadFileId ?? null,
+      conversation_id: conversationId ?? null,
+    },
   });
 }
 
@@ -19,11 +32,13 @@ export function generateWithUpload(
   file: File,
   prompt: string,
   providers: ProviderName[],
+  conversationId?: string | null,
 ): Promise<GenerationRequest> {
   const form = new FormData();
   form.append('file', file);
   form.append('prompt', prompt);
   form.append('providers', providers.join(','));
+  if (conversationId) form.append('conversation_id', conversationId);
   return apiFetch<GenerationRequest>('/images/generate-with-upload', { method: 'POST', body: form });
 }
 

@@ -105,31 +105,61 @@ one hour and single-use.
 ### `POST /chat/stream` → 200 `text/event-stream`
 
 ```json
-{ "conversation_id": "uuid or null", "message": "Hello", "provider": "openai" }
+{
+  "conversation_id": "uuid or null",
+  "message": "Write an Instagram caption for this",
+  "providers": ["openai", "gemini"],
+  "upload_file_id": "uuid or null"
+}
 ```
 
 Omit `conversation_id` to start a new conversation; its id is returned in the `X-Conversation-Id`
 response header and in the final `done` event.
 
+`providers` takes one or two slot keys. With two, the same turn runs through both concurrently and
+their answers stream interleaved — every event carries the slot it came from, so a client can render
+them side by side. Each model is replayed **only its own** past answers: showing it the other's
+replies as if they were its own would have it inventing things it never said.
+
+`upload_file_id` attaches an image for the model to look at; obtain one from
+`POST /files/upload`. Only the current turn's image is sent — past attachments are not re-sent, so a
+long thread does not grow without bound or re-bill tokens already paid for. The model identifier
+comes from `provider_configs`, so the admin panel's Models screen governs both chat and images.
+
 Server-sent events:
 
 | Event | Data | Meaning |
 |---|---|---|
-| `delta` | `{"content": "next chunk"}` | Append to the assistant message |
-| `error` | `{"message": "…", "code": "provider_error" \| "insufficient_credits"}` | Show the message with a retry affordance |
-| `done` | `{"conversation_id": "uuid"}` | Stream finished |
+| `delta` | `{"provider": "openai", "content": "next chunk"}` | Append to that slot's answer |
+| `provider_done` | `{"provider": "openai"}` | That slot finished; others may still be running |
+| `error` | `{"provider": "openai" \| null, "message": "…", "code": "provider_error" \| "insufficient_credits"}` | `null` means the whole turn failed |
+| `done` | `{"conversation_id": "uuid"}` | Every slot has finished |
 
-Credits are reserved before the call and **refunded automatically if nothing was generated**, so a
-provider outage never costs the user anything.
+Credits are reserved for all requested slots up front — half an answer because the second
+reservation failed would be worse than being told the pair is unaffordable. A slot that generates
+nothing is **refunded individually**, so a sibling that succeeded keeps its charge.
 
 To stop generation, abort the HTTP request client-side (`AbortController`); the server detects the
-disconnect and stops.
+disconnect and cancels the provider tasks.
+
+### `POST /conversations` → 201
+
+```json
+{ "title": "Diwali poster", "provider": "openai" }
+```
+
+Opens an empty thread. Needed because a session can begin with an image generation rather than a
+message, and a generation must belong to a conversation to be replayed in one.
 
 ### `GET /conversations` → 200
 
 Array of conversation summaries, newest first. Only the caller's own conversations.
 
 ### `GET /conversations/{id}` → 200
+
+Returns `messages` and, separately, the `generations` started from inside this thread. They are not
+merged server-side because a generation may still be running while the messages around it are
+already final — the client interleaves the two by `created_at` and polls the unfinished ones.
 
 The conversation plus its full `messages` array. 404 if it isn't yours.
 
@@ -187,6 +217,7 @@ not both, the request is rejected with 402 and the partial reservation is rolled
 | `file` | file | JPG/PNG/WEBP, within `MAX_UPLOAD_MB` and `MAX_IMAGE_DIMENSION` |
 | `prompt` | text | |
 | `providers` | text | Comma-separated, e.g. `openai,gemini` |
+| `conversation_id` | text | Optional. Files the generation into that thread so it replays in the conversation. |
 
 The upload is validated by extension **and** content sniffing, then re-encoded to strip metadata and
 any appended payload, and stored under a server-generated UUID filename. The original filename is kept
@@ -224,6 +255,12 @@ one via `parent_result_id`, so history is preserved rather than overwritten.
 ---
 
 ## Files
+
+### `POST /files/upload` → 201
+
+Multipart with a single `file` field. Validates by sniffing the real image format rather than
+trusting the filename, re-encodes to strip EXIF and any smuggled payload, and returns the stored
+file's id — usable as `upload_file_id` on a chat turn or an image generation.
 
 Private media is only reachable through these ownership-checked endpoints. There is no public URL for
 a generated or uploaded image.

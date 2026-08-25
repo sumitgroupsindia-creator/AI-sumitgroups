@@ -30,12 +30,22 @@ export interface Message {
   content: string;
   provider: string | null;
   error: string | null;
+  /** An image the user attached to this turn. */
+  upload_file_id: string | null;
   created_at: string;
 }
 
 export interface ConversationDetail extends Conversation {
   messages: Message[];
+  /** Images generated from inside this thread; interleaved with `messages` by created_at. */
+  generations: GenerationRequest[];
 }
+
+/** Which model slots a turn should run through. 'both' asks every enabled slot. */
+export type ModelSelection = ProviderName | 'both';
+
+/** Whether the composer is asking for words or for pictures. */
+export type ComposerMode = 'chat' | 'image';
 
 export type GenerationStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
@@ -54,8 +64,20 @@ export interface GenerationRequest {
   id: string;
   prompt: string;
   status: 'pending' | 'processing' | 'completed' | 'partial' | 'failed';
+  conversation_id: string | null;
+  upload_file_id: string | null;
   created_at: string;
   results: GenerationResult[];
+}
+
+export interface UploadedFile {
+  id: string;
+  original_filename: string;
+  content_type: string;
+  size_bytes: number;
+  width: number | null;
+  height: number | null;
+  created_at: string;
 }
 
 export interface Plan {

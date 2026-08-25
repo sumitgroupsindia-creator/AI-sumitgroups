@@ -1,30 +1,23 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
 
-import { ImageStudio } from '@/features/images/image-studio';
-import { ImageHistory } from '@/features/images/image-history';
-import * as imageService from '@/services/image.service';
-import type { GenerationRequest } from '@/types/api';
-
+/**
+ * Image generation moved into the chat thread, where it shares the prompt box, the model slots and
+ * the history. This stays only so links and bookmarks to the old screen still land somewhere.
+ */
 export default function ImagesPage() {
-  const [history, setHistory] = useState<GenerationRequest[]>([]);
-  const [selected, setSelected] = useState<GenerationRequest | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
-    void imageService
-      .listGenerations()
-      .then((items) => {
-        setHistory(items);
-        setSelected((current) => current ?? items[0] ?? null);
-      })
-      .catch(() => setHistory([]));
-  }, []);
+    router.replace('/chat');
+  }, [router]);
 
   return (
-    <div>
-      <ImageStudio initialGeneration={selected} />
-      {history.length > 0 && <ImageHistory items={history} onSelect={setSelected} />}
+    <div className="flex h-full items-center justify-center">
+      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
     </div>
   );
 }

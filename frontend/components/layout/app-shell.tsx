@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   CreditCard,
-  Images,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -24,7 +23,6 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 
 const NAV_ITEMS = [
-  { href: '/images', label: 'Images', icon: Images },
   { href: '/pricing', label: 'Pricing', icon: Tag },
   { href: '/settings/usage', label: 'Usage & Credits', icon: CreditCard },
   { href: '/settings', label: 'Settings', icon: Settings },

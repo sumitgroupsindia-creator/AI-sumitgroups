@@ -8,6 +8,8 @@ class GenerateImageRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
     providers: list[str] = Field(default_factory=lambda: ["openai", "gemini"])
     upload_file_id: UUID | None = None
+    # Set when the generation was started from a conversation, so it can be replayed in that thread.
+    conversation_id: UUID | None = None
 
 
 class GenerationResultResponse(BaseModel):
@@ -36,6 +38,8 @@ class GenerationRequestResponse(BaseModel):
     id: UUID
     prompt: str
     status: str
+    conversation_id: UUID | None = None
+    upload_file_id: UUID | None = None
     created_at: datetime
     results: list[GenerationResultResponse] = []
 

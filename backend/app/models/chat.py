@@ -36,5 +36,10 @@ class Message(Base, UUIDPKMixin, TimestampMixin):
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     tokens_used: Mapped[int | None] = mapped_column(nullable=True)
     error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # An image the user attached to this turn. SET NULL rather than CASCADE: losing the file should
+    # not delete the conversation turn that referred to it.
+    upload_file_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("uploaded_files.id", ondelete="SET NULL"), nullable=True
+    )
 
     conversation = relationship("Conversation", back_populates="messages")

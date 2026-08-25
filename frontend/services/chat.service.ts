@@ -2,6 +2,10 @@ import { API_BASE, apiFetch } from '@/lib/api-client';
 import { getAccessToken } from '@/lib/auth-storage';
 import type { Conversation, ConversationDetail, ProviderName } from '@/types/api';
 
+export function createConversation(title: string, provider: ProviderName = 'openai'): Promise<Conversation> {
+  return apiFetch<Conversation>('/conversations', { method: 'POST', body: { title, provider } });
+}
+
 export function listConversations(): Promise<Conversation[]> {
   return apiFetch<Conversation[]>('/conversations');
 }
@@ -19,9 +23,12 @@ export function deleteConversation(id: string): Promise<void> {
 }
 
 export interface StreamHandlers {
-  onDelta: (text: string) => void;
+  /** Every delta is tagged, because two slots can be answering the same turn at once. */
+  onDelta: (provider: ProviderName, text: string) => void;
+  onProviderDone: (provider: ProviderName) => void;
   onDone: (conversationId: string) => void;
-  onError: (message: string, code?: string) => void;
+  /** `provider` is null when the failure was for the whole turn, e.g. not enough credits. */
+  onError: (provider: ProviderName | null, message: string, code?: string) => void;
 }
 
 /**
@@ -29,7 +36,12 @@ export interface StreamHandlers {
  * "Stop generating" — aborting closes the connection and the server stops mid-stream.
  */
 export function streamChat(
-  params: { conversationId?: string; message: string; provider: ProviderName },
+  params: {
+    conversationId?: string;
+    message: string;
+    providers: ProviderName[];
+    uploadFileId?: string | null;
+  },
   handlers: StreamHandlers,
 ): AbortController {
   const controller = new AbortController();
@@ -46,7 +58,8 @@ export function streamChat(
         body: JSON.stringify({
           conversation_id: params.conversationId ?? null,
           message: params.message,
-          provider: params.provider,
+          providers: params.providers,
+          upload_file_id: params.uploadFileId ?? null,
         }),
       });
 
@@ -58,7 +71,7 @@ export function streamChat(
         } catch {
           /* non-JSON error */
         }
-        handlers.onError(message);
+        handlers.onError(null, message);
         return;
       }
 
@@ -84,14 +97,15 @@ export function streamChat(
           const event = eventLine.slice(7).trim();
           const payload = JSON.parse(dataLine.slice(6));
 
-          if (event === 'delta') handlers.onDelta(payload.content);
-          else if (event === 'error') handlers.onError(payload.message, payload.code);
+          if (event === 'delta') handlers.onDelta(payload.provider, payload.content);
+          else if (event === 'provider_done') handlers.onProviderDone(payload.provider);
+          else if (event === 'error') handlers.onError(payload.provider ?? null, payload.message, payload.code);
           else if (event === 'done') handlers.onDone(payload.conversation_id || conversationId);
         }
       }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
-        handlers.onError('Connection lost. Please retry.');
+        handlers.onError(null, 'Connection lost. Please retry.');
       }
     }
   })();

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import AsyncSessionLocal
 from app.core.logging import get_logger
+from app.models.chat import Conversation
 from app.models.image import (
     GeneratedImage,
     GenerationRequest,
@@ -38,7 +39,14 @@ async def create_generation_request(
     providers: list[str],
     upload_file_id: UUID | None,
     request_ref: str,
+    conversation_id: UUID | None = None,
 ) -> GenerationRequest:
+    if conversation_id is not None:
+        owned = await db.execute(
+            select(Conversation).where(Conversation.id == conversation_id, Conversation.user_id == user_id)
+        )
+        if owned.scalar_one_or_none() is None:
+            raise ValueError("Conversation not found")
     if upload_file_id is not None:
         result = await db.execute(
             select(UploadedFile).where(UploadedFile.id == upload_file_id, UploadedFile.user_id == user_id)
@@ -61,7 +69,12 @@ async def create_generation_request(
         raise
 
     gen_request = GenerationRequest(
-        user_id=user_id, prompt=prompt, upload_file_id=upload_file_id, status="processing", request_ref=request_ref
+        user_id=user_id,
+        conversation_id=conversation_id,
+        prompt=prompt,
+        upload_file_id=upload_file_id,
+        status="processing",
+        request_ref=request_ref,
     )
     db.add(gen_request)
     await db.flush()

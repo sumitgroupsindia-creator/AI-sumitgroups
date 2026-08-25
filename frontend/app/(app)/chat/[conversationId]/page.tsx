@@ -41,7 +41,7 @@ export default function ConversationPage({ params }: { params: Promise<{ convers
     <ChatInterface
       conversationId={conversation.id}
       initialMessages={conversation.messages}
-      initialProvider={conversation.provider}
+      initialGenerations={conversation.generations}
     />
   );
 }

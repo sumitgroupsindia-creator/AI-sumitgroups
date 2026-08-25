@@ -16,6 +16,23 @@ def _client_for(api_key: str) -> AsyncOpenAI:
     return AsyncOpenAI(api_key=api_key, timeout=60.0)
 
 
+def _to_openai_message(message: ChatMessage) -> dict:
+    """Plain string content unless the turn carries an image, which OpenAI takes as content parts."""
+    if message.image is None:
+        return {"role": message.role, "content": message.content}
+    encoded = base64.b64encode(message.image.data).decode()
+    return {
+        "role": message.role,
+        "content": [
+            {"type": "text", "text": message.content},
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{message.image.mime_type};base64,{encoded}"},
+            },
+        ],
+    }
+
+
 class OpenAIProvider(ChatProvider, ImageProvider):
     name = "openai"
 
@@ -27,7 +44,7 @@ class OpenAIProvider(ChatProvider, ImageProvider):
             client = await self._client()
             stream = await client.chat.completions.create(
                 model=model,
-                messages=[{"role": m.role, "content": m.content} for m in messages],
+                messages=[_to_openai_message(m) for m in messages],
                 stream=True,
             )
             async for chunk in stream:
