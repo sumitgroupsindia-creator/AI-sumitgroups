@@ -17,6 +17,33 @@ os.environ.setdefault("STORAGE_PATH", "./storage_test")
 # dedicated test that re-enables it.
 os.environ["RATE_LIMIT_ENABLED"] = "false"
 
+# Must point at a schema dedicated to tests: the suite DROPs and recreates every table.
+TEST_DATABASE_URL = os.environ.get(
+    "TEST_DATABASE_URL", "mysql+aiomysql://test:test@127.0.0.1:53306/ai_saas_test?charset=utf8mb4"
+)
+
+
+def _database_name(url: str) -> str:
+    return url.rsplit("/", 1)[-1].split("?", 1)[0]
+
+
+# A guard, not a formality. `create_schema` runs `drop_all`, so the cost of this file being pointed
+# at the wrong database once is every row in it. Requiring the name to say `test` means an ordinary
+# mistake — a copied .env, an exported DATABASE_URL, a tunnel left open to production — stops here
+# instead of at the point of no return.
+_name = _database_name(TEST_DATABASE_URL)
+if "test" not in _name.lower():
+    raise RuntimeError(
+        f"Refusing to run: TEST_DATABASE_URL points at a database named {_name!r}, which does not "
+        "look like a test database. This suite drops every table it finds."
+    )
+
+# The application's own DATABASE_URL is forced to the same schema. Overriding the `get_db`
+# dependency is not enough on its own: `settings_service` opens an engine of its own straight from
+# the settings, and `test_admin_settings` writes through it. Without this line, a .env pointed at
+# production means the suite edits production configuration.
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+
 from app.core.db import Base, get_db_session  # noqa: E402
 from app.services import settings_service  # noqa: E402
 from app.core.deps import get_db  # noqa: E402
@@ -24,15 +51,9 @@ from app.main import app  # noqa: E402
 from app.models.image import ProviderConfig  # noqa: E402
 from app.models.prompt import PromptTemplate  # noqa: E402
 from app.services import prompt_service  # noqa: E402
+from app.workers import image_tasks  # noqa: E402
 from app.models.settings import ProviderBrand  # noqa: E402
 from app.models.billing import Plan  # noqa: E402
-
-# Must point at a schema dedicated to tests: the suite DROPs and recreates every table, so aiming
-# it at a development database would silently destroy that data.
-TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL", "mysql+aiomysql://test:test@127.0.0.1:53306/ai_saas_test?charset=utf8mb4"
-)
-
 
 SYNC_TEST_DATABASE_URL = TEST_DATABASE_URL.replace("mysql+aiomysql://", "mysql+pymysql://")
 
@@ -51,6 +72,26 @@ class _NoRouting:
 
     async def complete(self, messages, model, system=None, max_tokens=256):
         return "0"
+
+
+@pytest.fixture(autouse=True)
+def queued_generations(monkeypatch):
+    """Keep Celery dispatch off the network, and record it instead.
+
+    Handing a task to Celery opens a connection to the broker. The suite has no Redis and should
+    not need one: every test that cares what generation *does* drives `image_orchestrator` directly.
+    Left unpatched, `.delay` retries a missing broker twenty times and then fails the test — which
+    is exactly how these passed on a laptop with Redis running and failed in CI without it.
+
+    Autouse rather than per-test, because per-test is what went wrong: twenty-four tests remembered
+    to patch it and six did not. Returns the list of dispatches, for a test that wants to assert one
+    happened.
+    """
+    sent: list[tuple] = []
+    monkeypatch.setattr(
+        image_tasks.run_generation_task, "delay", lambda *args, **kwargs: sent.append((args, kwargs))
+    )
+    return sent
 
 
 @pytest.fixture(autouse=True)

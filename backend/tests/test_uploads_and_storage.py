@@ -32,7 +32,6 @@ async def test_upload_accepts_valid_png(client, seeded_db, user_factory, monkeyp
     credit.balance = 100
     await seeded_db.commit()
 
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
     monkeypatch.setattr(
         "app.services.upload_service.get_storage_provider", lambda: LocalStorageProvider(str(tmp_path))
     )

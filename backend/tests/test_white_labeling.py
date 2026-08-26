@@ -24,7 +24,6 @@ async def test_generation_response_hides_vendor_model_id(client, seeded_db, user
     credit.balance = 100
     await seeded_db.commit()
 
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
     resp = await client.post(
         "/api/v1/images/generate", headers=user["headers"],
         json={"prompt": "a cat", "providers": ["openai", "gemini"]},

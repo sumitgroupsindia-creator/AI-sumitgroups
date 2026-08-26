@@ -122,6 +122,27 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
+  not-deployed:
+    name: Deploy skipped — VPS secrets missing
+    needs: build
+    if: needs.build.outputs.can_deploy != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # A skipped job shows as a grey dash and leaves the run green, so a build that reached nobody
+      # looks exactly like a successful deploy. This makes the difference visible on the run summary.
+      - name: Say so
+        run: |
+          {
+            echo "### Images built, but nothing was deployed"
+            echo
+            echo "\`VPS_HOST\` is not set, so the deploy job did not run and the server is still"
+            echo "on whatever it was running before."
+            echo
+            echo "Add \`VPS_HOST\`, \`VPS_USER\` and \`VPS_SSH_KEY\` under"
+            echo "Settings → Secrets and variables → Actions to turn deployment on."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning title=Not deployed::VPS secrets are missing, so this build was not deployed."
+
   deploy:
     name: Deploy to VPS
     needs: build

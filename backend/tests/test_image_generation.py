@@ -63,7 +63,6 @@ async def _top_up(db, uid, amount=100):
 async def test_generate_creates_pending_results_for_each_provider(client, seeded_db, user_factory, monkeypatch):
     user = await user_factory()
     await _top_up(seeded_db, await _user_id(seeded_db, user["email"]))
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     resp = await client.post(
         "/api/v1/images/generate",
@@ -80,7 +79,6 @@ async def test_generate_creates_pending_results_for_each_provider(client, seeded
 async def test_generate_debits_credits_for_each_provider(client, seeded_db, user_factory, monkeypatch):
     user = await user_factory()
     await _top_up(seeded_db, await _user_id(seeded_db, user["email"]), amount=100)
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     await client.post(
         "/api/v1/images/generate",
@@ -97,7 +95,6 @@ async def test_partial_reservation_is_rolled_back_when_second_provider_unafforda
     """The free plan's 50 credits do not cover two slots plus what the account already spent, and
     a refusal must leave the wallet exactly as it found it — not half-charged."""
     user = await user_factory()
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     uid = await _user_id(seeded_db, user["email"])
     await _top_up(seeded_db, uid, amount=15)  # covers one slot at 8, not two at 16
@@ -116,7 +113,6 @@ async def test_both_providers_run_and_persist_images(client, seeded_db, user_fac
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
     fake_providers("ok", "ok")
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     # Give enough credits for two providers.
     from app.models.billing import Credit
@@ -152,7 +148,6 @@ async def test_one_provider_failing_still_delivers_the_other(
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
     fake_providers(openai_behavior="ok", gemini_behavior="fail")
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     from app.models.billing import Credit
 
@@ -196,7 +191,6 @@ async def test_failed_provider_credits_are_refunded(client, seeded_db, user_fact
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
     fake_providers(openai_behavior="fail", gemini_behavior="fail")
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     from app.models.billing import Credit
 
@@ -223,7 +217,6 @@ async def test_providers_run_concurrently_not_sequentially(
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
     fake_providers(openai_behavior="slow", gemini_behavior="slow")
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     from app.models.billing import Credit
 
@@ -245,7 +238,6 @@ async def test_regenerate_creates_new_result_linked_to_parent(client, seeded_db,
     user = await user_factory()
     # Two generations, and the free grant covers one — a retry is billed like any other picture.
     await _top_up(seeded_db, await _user_id(seeded_db, user["email"]))
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     resp = await client.post(
         "/api/v1/images/generate", headers=user["headers"], json={"prompt": "x", "providers": ["openai"]}

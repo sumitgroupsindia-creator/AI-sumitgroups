@@ -99,7 +99,6 @@ async def test_image_charges_base_plus_margin(client, seeded_db, user_factory, m
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
     await _set_balance(seeded_db, uid, 100)
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     await client.post(
         "/api/v1/images/generate", headers=user["headers"],
@@ -115,7 +114,6 @@ async def test_margin_is_charged_per_picture_not_per_prompt(client, seeded_db, u
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
     await _set_balance(seeded_db, uid, 100)
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     await client.post(
         "/api/v1/images/generate", headers=user["headers"],
@@ -131,7 +129,6 @@ async def test_chat_and_images_draw_on_the_same_wallet(client, seeded_db, user_f
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
     await _set_balance(seeded_db, uid, IMAGE_CHARGE)
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     await client.post(
         "/api/v1/images/generate", headers=user["headers"],
@@ -153,7 +150,6 @@ async def test_failure_refunds_the_margin_too(
     uid = await _user_id(seeded_db, user["email"])
     await _set_balance(seeded_db, uid, 100)
     fake_image_providers("fail")
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     created = await client.post(
         "/api/v1/images/generate", headers=user["headers"],
@@ -173,7 +169,6 @@ async def test_regenerate_charges_again(client, seeded_db, user_factory, monkeyp
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
     await _set_balance(seeded_db, uid, 100)
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     created = await client.post(
         "/api/v1/images/generate", headers=user["headers"],
@@ -196,7 +191,6 @@ async def test_regenerate_is_refused_when_the_wallet_is_empty(
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
     await _set_balance(seeded_db, uid, IMAGE_CHARGE)
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     created = await client.post(
         "/api/v1/images/generate", headers=user["headers"],
@@ -217,7 +211,6 @@ async def test_failed_regeneration_cannot_mint_credits(
     uid = await _user_id(seeded_db, user["email"])
     await _set_balance(seeded_db, uid, 100)
     fake_image_providers("fail")
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     created = await client.post(
         "/api/v1/images/generate", headers=user["headers"],
@@ -267,7 +260,6 @@ async def test_admin_can_change_the_margin_and_the_wallet_follows(
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
     await _set_balance(seeded_db, uid, 100)
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     await client.post(
         "/api/v1/images/generate", headers=user["headers"],
@@ -296,7 +288,6 @@ async def test_pricing_report_totals_revenue_cost_and_profit(
     uid = await _user_id(seeded_db, user["email"])
     await _set_balance(seeded_db, uid, 100)
     fake_image_providers("ok")
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     created = await client.post(
         "/api/v1/images/generate", headers=user["headers"],
@@ -331,7 +322,6 @@ async def test_pricing_report_excludes_refunded_failures(
     uid = await _user_id(seeded_db, user["email"])
     await _set_balance(seeded_db, uid, 100)
     fake_image_providers("fail")
-    monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)
 
     created = await client.post(
         "/api/v1/images/generate", headers=user["headers"],

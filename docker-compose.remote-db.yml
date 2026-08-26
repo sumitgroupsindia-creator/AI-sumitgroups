@@ -1,0 +1,40 @@
+# Run the local app against the PRODUCTION database on the VPS.
+#
+#   ./scripts/vps-db-tunnel.sh                     # terminal 1 — keep it open
+#   export REMOTE_DATABASE_URL=...                 # the script prints the shape
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.local.yml \
+#                  -f docker-compose.remote-db.yml up -d
+#
+# The VPS publishes nothing but 80 and 443 — MySQL sits on an internal Docker network, out of reach
+# of the internet, which is how it should stay. So this goes through an SSH tunnel rather than an
+# open port: the script forwards localhost:3307 here to the mysql container there, and these
+# containers reach it through host.docker.internal.
+#
+# WHAT THIS MEANS: every write is a write to production. Signing up creates a real account and
+# generating an image spends real credits. There is no undo.
+#
+# `migrate` is deliberately not started. Schema changes belong to the deploy pipeline, which applies
+# them from the image that was actually built and tested; a laptop with an editor open is the last
+# place that decision should be made. If the schema here is behind the code, deploy — do not
+# migrate production by hand.
+services:
+  mysql:
+    profiles: ['unused-in-remote-db-mode']
+
+  migrate:
+    profiles: ['unused-in-remote-db-mode']
+
+  backend:
+    environment:
+      DATABASE_URL: ${REMOTE_DATABASE_URL:?run scripts/vps-db-tunnel.sh first, then export REMOTE_DATABASE_URL}
+    depends_on: !override
+      redis:
+        condition: service_healthy
+
+  worker:
+    environment:
+      DATABASE_URL: ${REMOTE_DATABASE_URL:?run scripts/vps-db-tunnel.sh first, then export REMOTE_DATABASE_URL}
+    depends_on: !override
+      redis:
+        condition: service_healthy
