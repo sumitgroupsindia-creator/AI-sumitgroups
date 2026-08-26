@@ -15,7 +15,7 @@ router = APIRouter(tags=["credits"])
 async def get_credits(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     credit = await get_or_create_credits(db, user.id)
     await db.commit()
-    return CreditsResponse(chat_balance=credit.chat_balance, image_balance=credit.image_balance)
+    return CreditsResponse(balance=credit.balance)
 
 
 @router.get("/usage", response_model=list[UsageRecordResponse])

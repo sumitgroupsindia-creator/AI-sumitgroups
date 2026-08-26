@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, Loader2, Paperclip, RefreshCw, Send, Square, X } from 'lucide-react';
+import { AlertCircle, Loader2, Plus, RefreshCw, Send, Square, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { AttachedImage } from '@/features/composer/attached-image';
 import { ModeToggle } from '@/features/composer/mode-toggle';
 import { SlotSelector, providersFor } from '@/features/composer/slot-selector';
-import { useModelLabel, useModelLabels } from '@/features/branding/model-branding';
+import { useModelLabel, useModelLabels, useQuote } from '@/features/branding/model-branding';
 import { ModelResultCard } from '@/features/images/model-result-card';
 import { useCredits } from '@/hooks/use-credits';
 import { useGenerationsPolling } from '@/hooks/use-generations-polling';
@@ -108,6 +108,7 @@ export function ChatInterface({
 }: ChatInterfaceProps) {
   const knownProviders = Object.keys(useModelLabels()) as ProviderName[];
   const labelFor = useModelLabel();
+  const quoteFor = useQuote();
   const router = useRouter();
   const { refresh: refreshCredits } = useCredits();
 
@@ -156,6 +157,8 @@ export function ChatInterface({
     () => providersFor(selection, knownProviders),
     [selection, knownProviders],
   );
+
+  const quote = quoteFor(providers, mode);
 
   const turns = useMemo(() => buildTurns(messages, generations), [messages, generations]);
   const isEmpty = turns.length === 0 && !pendingUser && !live;
@@ -327,7 +330,7 @@ export function ChatInterface({
     <div className="flex h-full flex-col">
       <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
         {isEmpty ? (
-          <EmptyState mode={mode} onModeChange={setMode} onPick={send} />
+          <EmptyState mode={mode} onPick={send} />
         ) : (
           <div className="mx-auto max-w-4xl space-y-6 px-4 py-8">
             {turns.map((turn) => (
@@ -380,10 +383,19 @@ export function ChatInterface({
 
       <div className="border-t bg-background/95 backdrop-blur">
         <div className="mx-auto max-w-4xl px-4 py-4">
+          {/* Above the box: what this turn should be, which slots answer it, and what that costs —
+              all settled before the first keystroke, so the price is on screen while the prompt is
+              still being written rather than after. */}
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            {/* On a blank thread the toggle sits above the heading instead, where the eye already is. */}
-            {!isEmpty && <ModeToggle value={mode} onChange={setMode} size="sm" />}
-            <SlotSelector value={selection} onChange={setSelection} disabled={busy} />
+            <ModeToggle value={mode} onChange={setMode} size="sm" />
+            <div className="ml-auto flex items-center gap-2">
+              <SlotSelector value={selection} onChange={setSelection} disabled={busy} />
+              {quote !== null && (
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {quote} credit{quote === 1 ? '' : 's'}
+                </span>
+              )}
+            </div>
           </div>
 
           {attachment && (
@@ -408,15 +420,17 @@ export function ChatInterface({
               className="hidden"
               onChange={(e) => pickFile(e.target.files?.[0])}
             />
+            {/* At the start of the box, where the turn itself starts. Attaching works in either
+                mode — a photo is context for words as readily as it is input for a picture. */}
             <Button
               size="icon"
               variant="ghost"
-              className="absolute bottom-1.5 left-1.5 h-8 w-8"
+              className="absolute bottom-1.5 left-1.5 h-8 w-8 rounded-full"
               disabled={busy}
               onClick={() => fileInputRef.current?.click()}
               title="तस्वीर लगाओ"
             >
-              <Paperclip className="h-4 w-4" />
+              <Plus className="h-4 w-4" />
               <span className="sr-only">तस्वीर लगाओ</span>
             </Button>
             <Textarea
@@ -558,20 +572,11 @@ function TypingIndicator() {
   );
 }
 
-function EmptyState({
-  mode,
-  onModeChange,
-  onPick,
-}: {
-  mode: ComposerMode;
-  onModeChange: (mode: ComposerMode) => void;
-  onPick: (prompt: string) => void;
-}) {
+function EmptyState({ mode, onPick }: { mode: ComposerMode; onPick: (prompt: string) => void }) {
   const heading = HEADINGS[mode];
   return (
     <div className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center px-4 text-center">
-      <ModeToggle value={mode} onChange={onModeChange} />
-      <h1 className="mt-6 text-2xl font-semibold tracking-tight sm:text-3xl">{heading.title}</h1>
+      <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{heading.title}</h1>
       <p className="mt-2 text-sm text-muted-foreground">{heading.subtitle}</p>
       <div className="mt-8 grid w-full gap-2 sm:grid-cols-2">
         {STARTERS[mode].map((prompt) => (

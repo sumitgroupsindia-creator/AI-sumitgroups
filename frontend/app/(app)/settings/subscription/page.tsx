@@ -79,12 +79,10 @@ export default function SubscriptionSettingsPage() {
       <CardContent className="space-y-4">
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <div>
-            <dt className="text-muted-foreground">Monthly chat credits</dt>
-            <dd className="font-medium tabular-nums">{subscription.plan.monthly_chat_credits}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Monthly image credits</dt>
-            <dd className="font-medium tabular-nums">{subscription.plan.monthly_image_credits}</dd>
+            <dt className="text-muted-foreground">Monthly credits</dt>
+            <dd className="font-medium tabular-nums">
+              {subscription.plan.monthly_credits} <span className="text-muted-foreground">(₹1 each)</span>
+            </dd>
           </div>
           {subscription.current_period_end && (
             <div>

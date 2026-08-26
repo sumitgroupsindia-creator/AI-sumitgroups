@@ -88,8 +88,8 @@ export interface Plan {
   price: string;
   currency: string;
   billing_interval: string;
-  monthly_chat_credits: number;
-  monthly_image_credits: number;
+  /** One wallet, one credit = ₹1. Granted afresh each billing period. */
+  monthly_credits: number;
   max_upload_mb: number;
   priority_queue: boolean;
 }
@@ -104,9 +104,9 @@ export interface Subscription {
   plan: Plan;
 }
 
+/** One wallet, in credits. One credit is one rupee. */
 export interface Credits {
-  chat_balance: number;
-  image_balance: number;
+  balance: number;
 }
 
 export interface UsageRecord {
@@ -156,8 +156,64 @@ export interface ProviderConfig {
   capability: 'chat' | 'image';
   model: string;
   is_enabled: boolean;
+  /** What the vendor bills us per operation, in rupees. Decimal string from the API. */
+  provider_cost_inr: string;
+  /** Charged to the customer before margin, in credits. */
   credit_cost: number;
+  /** Profit added per operation, in credits. Charged per generated image. */
+  margin_credits: number;
+  /** credit_cost + margin_credits — what the wallet is actually debited by. */
+  charge_credits: number;
+  /** charge_credits − provider_cost_inr, in rupees. Decimal string from the API. */
+  profit_inr: string;
   display_name: string;
+}
+
+/** One slot's current price beside what it earned over the reporting window. Admin-only. */
+export interface AdminPricingRow {
+  provider: string;
+  capability: 'chat' | 'image';
+  model: string;
+  display_name: string;
+  is_enabled: boolean;
+  cost_inr: string;
+  base_credits: number;
+  margin_credits: number;
+  charge_credits: number;
+  profit_per_op_inr: string;
+  operations: number;
+  revenue_inr: string;
+  spend_inr: string;
+  profit_inr: string;
+}
+
+export interface AdminPricing {
+  days: number;
+  rows: AdminPricingRow[];
+  total_operations: number;
+  total_revenue_inr: string;
+  total_spend_inr: string;
+  total_profit_inr: string;
+}
+
+/**
+ * One master prompt the product adds to every request. Editable at /admin/prompts.
+ *
+ * `kind` decides when it applies: `base` always, `task` when the router picks it for a request,
+ * `tool` for the machinery itself (the router, and reading an attached photo) — switching a tool
+ * off turns that step and its API cost off.
+ */
+export interface PromptTemplate {
+  id: string;
+  key: string;
+  scope: 'chat' | 'image';
+  kind: 'base' | 'task' | 'tool';
+  name: string;
+  /** Read by the router when deciding whether a task fits, so this changes behaviour. */
+  description: string;
+  content: string;
+  is_enabled: boolean;
+  sort_order: number;
 }
 
 /** How a provider slot is named for customers. Editable at /admin/branding. */

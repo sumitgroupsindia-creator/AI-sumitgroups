@@ -88,8 +88,8 @@ export function PricingTable() {
 
               <CardContent className="flex flex-1 flex-col">
                 <ul className="flex-1 space-y-2.5 text-sm">
-                  <Feature>{plan.monthly_chat_credits.toLocaleString()} chat credits per month</Feature>
-                  <Feature>{plan.monthly_image_credits.toLocaleString()} image credits per month</Feature>
+                  <Feature>{plan.monthly_credits.toLocaleString()} credits per month (1 credit = ₹1)</Feature>
+                  <Feature>Spend them on chat or on images, however you like</Feature>
                   <Feature>Compare Model 1 and Model 2 side by side</Feature>
                   <Feature>Upload photos up to {plan.max_upload_mb} MB</Feature>
                   {plan.priority_queue && <Feature>Priority generation queue</Feature>}

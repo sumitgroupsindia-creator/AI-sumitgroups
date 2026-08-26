@@ -1,6 +1,7 @@
 import { apiFetch } from '@/lib/api-client';
 import type {
   AdminGenerationResult,
+  AdminPricing,
   AdminSetting,
   AdminSettingAudit,
   AdminStats,
@@ -8,6 +9,7 @@ import type {
   Plan,
   ProviderBrand,
   ProviderConfig,
+  PromptTemplate,
 } from '@/types/api';
 
 export function getStats(): Promise<AdminStats> {
@@ -28,7 +30,7 @@ export function listPlans(): Promise<Plan[]> {
 
 export function updatePlan(
   id: string,
-  patch: Partial<Pick<Plan, 'name' | 'monthly_chat_credits' | 'monthly_image_credits' | 'max_upload_mb'>> & {
+  patch: Partial<Pick<Plan, 'name' | 'monthly_credits' | 'max_upload_mb'>> & {
     price?: number;
     is_active?: boolean;
   },
@@ -42,13 +44,38 @@ export function listProviderConfigs(): Promise<ProviderConfig[]> {
 
 export function updateProviderConfig(
   id: string,
-  patch: { is_enabled?: boolean; credit_cost?: number; model?: string; display_name?: string },
+  patch: {
+    is_enabled?: boolean;
+    provider_cost_inr?: number;
+    credit_cost?: number;
+    margin_credits?: number;
+    model?: string;
+    display_name?: string;
+  },
 ): Promise<ProviderConfig> {
   return apiFetch<ProviderConfig>(`/admin/models/${id}`, { method: 'PATCH', body: patch });
 }
 
+/** Current prices next to what they actually earned over the last `days`. */
+export function getPricing(days = 30): Promise<AdminPricing> {
+  return apiFetch<AdminPricing>(`/admin/pricing?days=${days}`);
+}
+
 export function listFailedGenerations(limit = 50): Promise<AdminGenerationResult[]> {
   return apiFetch<AdminGenerationResult[]>(`/admin/generations/failed?limit=${limit}`);
+}
+
+export function listPromptTemplates(): Promise<PromptTemplate[]> {
+  return apiFetch<PromptTemplate[]>('/admin/prompts');
+}
+
+export function updatePromptTemplate(
+  id: string,
+  patch: Partial<Pick<PromptTemplate, 'name' | 'description' | 'content' | 'sort_order'>> & {
+    is_enabled?: boolean;
+  },
+): Promise<PromptTemplate> {
+  return apiFetch<PromptTemplate>(`/admin/prompts/${id}`, { method: 'PATCH', body: patch });
 }
 
 export function listProviderBrands(): Promise<ProviderBrand[]> {

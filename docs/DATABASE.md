@@ -35,8 +35,7 @@ Tokens expire one hour after `created_at` and are single-use.
 
 ### `plans`
 `code` UNIQUE (`free`/`pro`/`business`), `name`, `description`, `price` DECIMAL(10,2), `currency`,
-`billing_interval`, `monthly_chat_credits`, `monthly_image_credits`, `max_upload_mb`,
-`priority_queue`, `is_active`.
+`billing_interval`, `monthly_credits`, `max_upload_mb`, `priority_queue`, `is_active`.
 
 Pricing and limits live here so the frontend never hard-codes them and admins can change them without
 a deploy.
@@ -49,8 +48,11 @@ the webhook looks up by it), `current_period_start`/`current_period_end`, `cance
 `status`: `pending` → `active` → (`past_due` | `cancelled` | `expired`).
 
 ### `credits`
-One row per user (`UNIQUE(user_id)`), with `chat_balance` and `image_balance`, plus
-`CHECK (balance >= 0)` on both as a last line of defence.
+One row per user (`UNIQUE(user_id)`), with a single `balance`.
+
+**One credit is one rupee.** Chat and images spend the same wallet: a split balance could leave a
+customer out of pictures while still holding words, which is not something a rupee-denominated
+credit can honestly describe.
 
 Balances are mutated only through `credit_service`, which takes a row lock:
 
@@ -112,8 +114,42 @@ Because each row carries its own status, one provider can be `completed` while i
 **Only metadata lives here — image bytes are on disk** under `storage/images/generated/`.
 
 ### `provider_configs`
-`UNIQUE(provider, capability)`, with `model`, `is_enabled`, `credit_cost`, `display_name`.
-Lets an admin disable a model or change its credit cost at runtime.
+`UNIQUE(provider, capability)`, with `model`, `is_enabled`, `display_name` and three numbers that
+together define the economics of one operation:
+
+| Column | Meaning |
+|---|---|
+| `provider_cost_inr` DECIMAL(10,4) | what the vendor bills us |
+| `credit_cost` | charged to the customer before margin |
+| `margin_credits` | profit added on top |
+
+The customer pays `credit_cost + margin_credits`; the margin is `charge − provider_cost_inr`. Every
+price is resolved through `app.services.pricing_service`, never read off this row directly, so a
+reservation, a refund and the figure quoted in the UI cannot disagree.
+
+Margin is charged **per operation**, not per prompt: asking both slots for an image produces two
+vendor bills, so it produces two margins, and a refund for one failed slot hands back exactly what
+that slot was charged.
+
+### `prompt_templates`
+`key` UNIQUE, with `scope` (chat|image), `kind` (base|task|tool), `name`, `description`, `content`,
+`is_enabled`, `sort_order`.
+
+The instructions the product adds around every request — the assistant's identity, the house style,
+and the task styles. They live here rather than in source because prompt wording is the thing most
+likely to need changing.
+
+`kind` decides when a row is used:
+
+| kind | when |
+|---|---|
+| `base` | always, for its scope |
+| `task` | when the router judges it a fit for the request; its `description` is what the router reads |
+| `tool` | run by the machinery itself — the router's own prompt, and the brief for reading an attached photo. Disabling one turns that step and the API call it costs off. |
+
+Composed in `app.services.prompt_service`. Helper calls are recorded in `usage_records` as
+`assist_route` / `assist_vision` with `credits_consumed = 0` and a real `cost_inr`: they are spent
+out of the margin, so the profit report has to be able to see them.
 
 ## Relationships
 

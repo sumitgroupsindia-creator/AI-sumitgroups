@@ -13,7 +13,7 @@ async def test_register_returns_tokens_and_seeds_free_plan_credits(client: Async
 
     credits = await client.get("/api/v1/credits", headers=user["headers"])
     assert credits.status_code == 200
-    assert credits.json() == {"chat_balance": 50, "image_balance": 10}
+    assert credits.json() == {"balance": 10}
 
 
 async def test_register_rejects_duplicate_email(client: AsyncClient, user_factory):

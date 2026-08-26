@@ -6,6 +6,7 @@ from app.core.deps import get_db
 from app.models.image import ProviderConfig
 from app.models.settings import ProviderBrand
 from app.schemas.config import PublicModelSlot
+from app.services import pricing_service
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -37,8 +38,10 @@ async def public_model_slots(db: AsyncSession = Depends(get_db)):
                 description=brand.description,
                 chat_enabled=bool(chat and chat.is_enabled),
                 image_enabled=bool(image and image.is_enabled),
-                chat_credit_cost=chat.credit_cost if chat else 0,
-                image_credit_cost=image.credit_cost if image else 0,
+                # The full charge, margin included — the number the wallet will actually be
+                # debited by, so the price quoted in the composer matches what gets taken.
+                chat_credit_cost=pricing_service.from_config(chat).credits if chat else 0,
+                image_credit_cost=pricing_service.from_config(image).credits if image else 0,
             )
         )
     return slots

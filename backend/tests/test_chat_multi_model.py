@@ -16,7 +16,7 @@ from app.models.chat import Conversation, Message
 from app.models.image import GenerationRequest, ProviderConfig, UploadedFile
 from app.models.user import User
 from app.providers.base import ProviderError
-from app.services import chat_service
+from app.services import chat_service, prompt_service
 from app.services.storage.local_storage import get_storage_provider
 
 
@@ -32,36 +32,49 @@ async def _user_id(db, email):
 
 async def _top_up(db, uid, amount=100):
     credit = (await db.execute(select(Credit).where(Credit.user_id == uid))).scalar_one()
-    credit.chat_balance = amount
+    credit.balance = amount
     await db.commit()
 
 
 class _FakeChatProvider:
     """Records what it was asked, so a test can assert on the messages that reached the vendor."""
 
-    def __init__(self, name, behavior="ok"):
+    def __init__(self, name, behavior="ok", routes_to="0"):
         self.name = name
         self._behavior = behavior
+        self._routes_to = routes_to
         self.seen_messages = None
         self.seen_model = None
+        self.seen_system = None
+        self.completions = []
 
-    async def stream_chat(self, messages, model):
+    async def stream_chat(self, messages, model, system=None):
         self.seen_messages = messages
         self.seen_model = model
+        self.seen_system = system
         if self._behavior == "fail":
             raise ProviderError(self.name, "simulated outage", retryable=False)
         yield f"[{self.name}] "
         yield "answer"
+
+    async def complete(self, messages, model, system=None, max_tokens=256):
+        """The router and the photo-reader both land here. Answering "0" means no task template
+        matched, which keeps a test's system prompt to the base unless it asks otherwise."""
+        self.completions.append({"messages": messages, "system": system, "max_tokens": max_tokens})
+        return self._routes_to
 
 
 @pytest.fixture
 def fake_chat(monkeypatch):
     registry: dict[str, _FakeChatProvider] = {}
 
-    def _install(openai_behavior="ok", gemini_behavior="ok"):
-        registry["openai"] = _FakeChatProvider("openai", openai_behavior)
-        registry["gemini"] = _FakeChatProvider("gemini", gemini_behavior)
+    def _install(openai_behavior="ok", gemini_behavior="ok", routes_to="0"):
+        registry["openai"] = _FakeChatProvider("openai", openai_behavior, routes_to)
+        registry["gemini"] = _FakeChatProvider("gemini", gemini_behavior, routes_to)
+        # Patched in both modules: the streamed answer comes through chat_service, while the router
+        # and the photo-reader reach for a provider from prompt_service.
         monkeypatch.setattr(chat_service, "get_chat_provider", lambda name: registry[name])
+        monkeypatch.setattr(prompt_service, "get_chat_provider", lambda name: registry[name])
         return registry
 
     return _install
@@ -188,7 +201,7 @@ async def test_two_models_cost_two_slots_and_a_failure_refunds_only_its_own(
     credit = (await seeded_db.execute(select(Credit).where(Credit.user_id == uid))).scalar_one()
     await seeded_db.refresh(credit)
     # Two reserved, the failed one refunded: exactly one slot paid for.
-    assert credit.chat_balance == 9
+    assert credit.balance == 9
 
 
 async def test_unaffordable_pair_is_refused_before_either_model_runs(
@@ -288,7 +301,7 @@ async def test_image_generated_from_a_conversation_is_returned_in_its_thread(
     conversation_id = _events(started.text, "done")[0].split('"conversation_id": "')[1].split('"')[0]
 
     credit = (await seeded_db.execute(select(Credit).where(Credit.user_id == uid))).scalar_one()
-    credit.image_balance = 100
+    credit.balance = 100
     await seeded_db.commit()
 
     created = await client.post(
@@ -326,7 +339,7 @@ async def test_generation_cannot_be_attached_to_someone_else_s_conversation(
 
     intruder_id = await _user_id(seeded_db, intruder["email"])
     credit = (await seeded_db.execute(select(Credit).where(Credit.user_id == intruder_id))).scalar_one()
-    credit.image_balance = 100
+    credit.balance = 100
     await seeded_db.commit()
 
     resp = await client.post(

@@ -1,6 +1,7 @@
 import uuid
+from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Index, Integer, String, Text
+from sqlalchemy import ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -82,11 +83,25 @@ class GeneratedImage(Base, UUIDPKMixin, TimestampMixin):
 
 
 class ProviderConfig(Base, UUIDPKMixin, TimestampMixin):
+    """One provider slot, and the economics of using it.
+
+    Prices are never read straight off this row — `app.services.pricing_service` owns that, so the
+    reservation, the refund and the figure shown to the customer all come from one calculation.
+    """
+
     __tablename__ = "provider_configs"
 
     provider: Mapped[str] = mapped_column(String(50), nullable=False)  # openai | gemini
     capability: Mapped[str] = mapped_column(String(20), nullable=False)  # chat | image
     model: Mapped[str] = mapped_column(String(100), nullable=False)
     is_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
+    # What the vendor bills us for one operation, in rupees. Recorded to four places because a
+    # single chat turn can cost a fraction of a paisa, and rounding those to zero would make the
+    # margin report claim a cost-free product.
+    provider_cost_inr: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False, default=0)
+    # Credits charged to the customer, before margin. One credit is one rupee.
     credit_cost: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Added on top, per operation. This is the profit, and it is deliberately a plain number of
+    # credits rather than a percentage so an administrator can read it as rupees earned.
+    margin_credits: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)

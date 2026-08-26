@@ -15,8 +15,65 @@ env:
   IMAGE_FRONTEND: ghcr.io/sumitgroupsindia-creator/ai-sumitgroups-frontend
 
 jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: testroot
+          MYSQL_DATABASE: ai_saas_test
+          MYSQL_USER: test
+          MYSQL_PASSWORD: test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -ptestroot"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+
+      - name: Backend tests
+        working-directory: backend
+        env:
+          # The suite DROPs and recreates every table, so it must never point anywhere but the
+          # throwaway schema this job just started.
+          TEST_DATABASE_URL: mysql+aiomysql://test:test@127.0.0.1:3306/ai_saas_test?charset=utf8mb4
+          JWT_SECRET: ci_secret_not_used_outside_this_job
+          DATABASE_URL: mysql+aiomysql://test:test@127.0.0.1:3306/ai_saas_test?charset=utf8mb4
+        run: python -m pytest -q
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: pnpm typecheck
+
   build:
     name: Build images
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -84,6 +141,8 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          # Only needed on hosts that moved SSH off 22 — Hostinger, for one, uses 65002.
+          port: ${{ secrets.VPS_PORT || 22 }}
           envs: GHCR_USER,GHCR_TOKEN,IMAGE_TAG
           script_stop: true
           script: |

@@ -12,6 +12,8 @@ const TABS = [
   { href: '/admin/users', label: 'Users' },
   { href: '/admin/plans', label: 'Plans' },
   { href: '/admin/models', label: 'Models' },
+  { href: '/admin/pricing', label: 'Pricing' },
+  { href: '/admin/prompts', label: 'Prompts' },
   { href: '/admin/branding', label: 'Branding' },
   { href: '/admin/settings', label: 'Settings' },
   { href: '/admin/usage', label: 'Failures' },

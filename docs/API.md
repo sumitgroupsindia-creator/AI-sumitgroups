@@ -321,12 +321,15 @@ Cancels at period end; the user keeps access until `current_period_end`.
 ### `GET /credits` → 200
 
 ```json
-{ "chat_balance": 950, "image_balance": 180 }
+{ "balance": 1130 }
 ```
+
+One wallet, in credits. **One credit is one rupee**, and chat and images both draw on it.
 
 ### `GET /usage?limit=50&offset=0` → 200
 
-One row per AI operation: slot, operation, credits consumed, status and timestamp.
+One row per AI operation: slot, operation, credits consumed, status and timestamp. What the
+operation cost *us* is recorded but never returned here — that is the margin, and it is admin-only.
 
 ---
 
@@ -341,9 +344,12 @@ and model identifiers.
 | `GET /admin/users` | List users |
 | `PATCH /admin/users/{id}` | Enable/disable an account, grant/revoke admin |
 | `GET /admin/plans` | All plans, including inactive |
-| `PATCH /admin/plans/{id}` | Change price, credit allowances, upload limit, active flag |
+| `PATCH /admin/plans/{id}` | Change price, monthly credit allowance, upload limit, active flag |
 | `GET /admin/models` | Provider configs with real model ids |
-| `PATCH /admin/models/{id}` | Enable/disable a model, change its credit cost, model id or admin label |
+| `PATCH /admin/models/{id}` | Enable/disable a model; set our cost (₹), base credits, margin credits, model id or admin label |
+| `GET /admin/pricing?days=30` | Current prices beside what they earned: operations, revenue, provider cost and profit |
+| `GET /admin/prompts` | The master prompts wrapped around every request |
+| `PATCH /admin/prompts/{id}` | Reword a template or switch it off; `key`, `scope` and `kind` are fixed |
 | `GET /admin/brands` | Customer-facing slot names ("Model 1 · Standard") |
 | `PATCH /admin/brands/{id}` | Rename a slot, its tier or its description |
 | `GET /admin/settings` | Runtime configuration; secrets are masked, never returned in the clear |

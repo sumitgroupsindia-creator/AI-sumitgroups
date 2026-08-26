@@ -10,7 +10,8 @@ from app.middleware.error_handler import register_error_handlers
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
-from app.services import settings_service
+from app.core.db import AsyncSessionLocal
+from app.services import bootstrap_service, settings_service
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -26,6 +27,12 @@ async def lifespan(app: FastAPI):
         await settings_service.warm()
     except Exception:  # a settings table that is not migrated yet must not block startup
         logger.warning("settings.warm_failed", exc_info=True)
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await bootstrap_service.ensure_admin_user(db)
+    except Exception:  # never let a bootstrap problem stop the API from serving
+        logger.warning("bootstrap.admin_failed", exc_info=True)
     yield
     logger.info("app.shutdown")
 

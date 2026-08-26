@@ -29,7 +29,7 @@ async def test_upload_accepts_valid_png(client, seeded_db, user_factory, monkeyp
     user = await user_factory()
     uid = (await seeded_db.execute(select(User).where(User.email == user["email"]))).scalar_one().id
     credit = (await seeded_db.execute(select(Credit).where(Credit.user_id == uid))).scalar_one()
-    credit.image_balance = 100
+    credit.balance = 100
     await seeded_db.commit()
 
     monkeypatch.setattr("app.api.v1.images.run_generation_task.delay", lambda *a, **kw: None)

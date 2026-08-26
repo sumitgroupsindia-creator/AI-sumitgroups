@@ -80,6 +80,12 @@ CATALOG: tuple[SettingSpec, ...] = (
     SettingSpec("smtp_password", "SMTP password", "Email", "secret"),
     SettingSpec("smtp_from", "From address", "Email", "string"),
     SettingSpec(
+        "image_aspect", "Image shape", "Images", "select",
+        "Portrait is a phone-shaped 9:16, for stories and status posts. Wording is sent to every "
+        "model; OpenAI additionally receives it as a real size, Gemini only as an instruction.",
+        options=("portrait", "square", "landscape"),
+    ),
+    SettingSpec(
         "max_upload_mb", "Max upload size (MB)", "Uploads", "int",
         "The reverse proxy caps request bodies at 25MB, so values above that are rejected before "
         "they ever reach the application.",

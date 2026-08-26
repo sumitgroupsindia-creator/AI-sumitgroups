@@ -12,12 +12,13 @@ from app.models.image import (
     GeneratedImage,
     GenerationRequest,
     GenerationResult,
-    ProviderConfig,
     UploadedFile,
 )
-from app.providers.base import ImageResult, ProviderError
+from app.providers.base import Aspect, ImageResult, ProviderError
 from app.providers.registry import get_image_provider
+from app.services import pricing_service
 from app.services.credit_service import record_usage, refund_credits, reserve_credits
+from app.services.pricing_service import Price
 from app.services.storage.base import StorageProvider
 from app.utils.image_processing import get_dimensions, make_thumbnail
 
@@ -26,9 +27,10 @@ logger = get_logger("image_service")
 _DEFAULT_MODELS = {"openai": "gpt-image-1", "gemini": "gemini-2.5-flash-image"}
 
 
-async def get_credit_costs(db: AsyncSession) -> dict[str, int]:
-    result = await db.execute(select(ProviderConfig).where(ProviderConfig.capability == "image"))
-    return {row.provider: row.credit_cost for row in result.scalars().all()}
+async def get_image_prices(db: AsyncSession) -> dict[str, Price]:
+    """Every image slot's economics, keyed by provider. A slot with no row still gets a price, so a
+    gap in configuration cannot hand out free generations."""
+    return await pricing_service.load(db, "image")
 
 
 async def create_generation_request(
@@ -54,19 +56,12 @@ async def create_generation_request(
         if result.scalar_one_or_none() is None:
             raise ValueError("Upload not found")
 
-    costs = await get_credit_costs(db)
-    total_needed = {"chat": 0, "image": sum(costs.get(p, 10) for p in providers)}
+    prices = await get_image_prices(db)
+    resolved = {p: prices.get(p) or pricing_service.fallback(p, "image") for p in providers}
 
-    reserved: list[tuple[str, int]] = []
-    try:
-        for provider in providers:
-            cost = costs.get(provider, 10)
-            await reserve_credits(db, user_id, "image", cost)
-            reserved.append((provider, cost))
-    except Exception:
-        for provider, cost in reserved:
-            await refund_credits(db, user_id, "image", cost)
-        raise
+    # Reserved as one sum: asking both slots is a single action to the customer, so being told up
+    # front that it is unaffordable beats paying for one picture and being refused the other.
+    await reserve_credits(db, user_id, sum(price.credits for price in resolved.values()))
 
     gen_request = GenerationRequest(
         user_id=user_id,
@@ -84,7 +79,7 @@ async def create_generation_request(
             GenerationResult(
                 request_id=gen_request.id,
                 provider=provider,
-                model=_DEFAULT_MODELS.get(provider, provider),
+                model=resolved[provider].model or _DEFAULT_MODELS.get(provider, provider),
                 status="pending",
             )
         )
@@ -102,7 +97,8 @@ async def run_single_provider(
     prompt: str,
     input_image: bytes | None,
     input_mime: str | None,
-    credit_cost: int,
+    aspect: Aspect,
+    price: Price,
     request_ref: str,
     storage: StorageProvider,
 ) -> None:
@@ -120,7 +116,8 @@ async def run_single_provider(
             prompt=prompt,
             input_image=input_image,
             input_mime=input_mime,
-            credit_cost=credit_cost,
+            aspect=aspect,
+            price=price,
             request_ref=request_ref,
             storage=storage,
         )
@@ -136,7 +133,8 @@ async def _run_single_provider(
     prompt: str,
     input_image: bytes | None,
     input_mime: str | None,
-    credit_cost: int,
+    aspect: Aspect,
+    price: Price,
     request_ref: str,
     storage: StorageProvider,
 ) -> None:
@@ -148,7 +146,11 @@ async def _run_single_provider(
     try:
         provider = get_image_provider(provider_name)
         image_result: ImageResult = await provider.generate_image(
-            prompt=prompt, model=model, input_image=input_image, input_mime=input_mime
+            prompt=prompt,
+            model=model,
+            input_image=input_image,
+            input_mime=input_mime,
+            aspect=aspect,
         )
         latency_ms = int((time.perf_counter() - started) * 1000)
 
@@ -181,7 +183,8 @@ async def _run_single_provider(
             provider=provider_name,
             model=model,
             operation="image_generate",
-            credits_consumed=credit_cost,
+            credits_consumed=price.credits,
+            cost_inr=price.cost_inr,
             status="success",
             latency_ms=latency_ms,
         )
@@ -191,7 +194,7 @@ async def _run_single_provider(
         result_row.status = "failed"
         result_row.error = "The provider failed to generate an image. You can retry."
         result_row.latency_ms = latency_ms
-        await refund_credits(db, user_id, "image", credit_cost)
+        await refund_credits(db, user_id, price.credits)
         await record_usage(
             db,
             user_id=user_id,
@@ -209,6 +212,6 @@ async def _run_single_provider(
     except Exception as exc:  # unexpected failure — still must not crash the sibling task
         result_row.status = "failed"
         result_row.error = "Unexpected error while generating the image."
-        await refund_credits(db, user_id, "image", credit_cost)
+        await refund_credits(db, user_id, price.credits)
         await db.commit()
         logger.error("image.unexpected_failure", provider=provider_name, error=str(exc), request_ref=request_ref)

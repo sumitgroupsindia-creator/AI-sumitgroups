@@ -6,7 +6,9 @@ from sqlalchemy import select
 from app.core.db import AsyncSessionLocal
 from app.core.logging import get_logger
 from app.models.image import GenerationRequest, GenerationResult, UploadedFile
-from app.services.image_service import get_credit_costs, run_single_provider
+from app.providers.base import ChatImage
+from app.services import pricing_service, prompt_service
+from app.services.image_service import get_image_prices, run_single_provider
 from app.services.storage.local_storage import get_storage_provider
 
 logger = get_logger("image_orchestrator")
@@ -41,12 +43,45 @@ async def run_generation(request_id: UUID, only_provider: str | None = None) -> 
                 input_image_bytes = await storage.read("images/uploaded", uploaded.stored_filename)
                 input_mime = uploaded.content_type
 
-        costs = await get_credit_costs(db)
-        prompt = gen_request.prompt
+        prices = await get_image_prices(db)
         user_id = gen_request.user_id
         request_ref = gen_request.request_ref
 
         pending = [(r.id, r.provider, r.model) for r in results if r.status == "pending"]
+
+        # The house style, the task and the shape are worked out once for the request and shared by
+        # both slots: they are answering the same brief, and paying to route it twice would buy the
+        # same answer twice. `pending[0]` names the slot whose chat model does that thinking.
+        if pending:
+            lead_provider = pending[0][1]
+
+            # A photo is read before anything is drawn from it, so the image model is told in words
+            # what it is looking at — otherwise it tends to replace the customer's actual product
+            # with a generic stand-in.
+            vision_brief: str | None = None
+            if input_image_bytes is not None:
+                vision_brief = await prompt_service.read_attachment(
+                    db,
+                    ChatImage(data=input_image_bytes, mime_type=input_mime or "image/png"),
+                    user_id=user_id,
+                    request_id=request_ref,
+                    provider=lead_provider,
+                )
+
+            aspect = await prompt_service.current_aspect()
+            composed = await prompt_service.compose_image(
+                db,
+                gen_request.prompt,
+                user_id=user_id,
+                request_id=request_ref,
+                provider=lead_provider,
+                aspect=aspect,
+                vision_brief=vision_brief,
+            )
+            prompt = composed.prompt
+        else:
+            prompt = gen_request.prompt
+            aspect = prompt_service.DEFAULT_ASPECT
 
     if not pending:
         return
@@ -60,7 +95,8 @@ async def run_generation(request_id: UUID, only_provider: str | None = None) -> 
             prompt=prompt,
             input_image=input_image_bytes,
             input_mime=input_mime,
-            credit_cost=costs.get(provider, 10),
+            aspect=aspect,
+            price=prices.get(provider) or pricing_service.fallback(provider, "image"),
             request_ref=request_ref,
             storage=storage,
         )

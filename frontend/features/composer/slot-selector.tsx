@@ -27,11 +27,11 @@ export function SlotSelector({
       label: labelFor(provider).tier,
       title: `${labelFor(provider).slot} — ${labelFor(provider).description}`,
     })),
-    { value: 'both', label: 'दोनों', title: 'दोनों मॉडल से एक साथ जवाब लो और तुलना करो' },
+    { value: 'both', label: 'Both', title: 'Ask both models at once and compare the answers' },
   ];
 
   return (
-    <div className="inline-flex rounded-md border p-0.5" role="radiogroup" aria-label="मॉडल चुनो">
+    <div className="inline-flex rounded-md border p-0.5" role="radiogroup" aria-label="Choose model">
       {options.map((option) => (
         <button
           key={option.value}

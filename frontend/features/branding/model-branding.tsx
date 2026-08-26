@@ -5,6 +5,10 @@ import type { ReactNode } from 'react';
 
 import { MODEL_LABELS, modelLabel as fallbackLabel, type ModelLabel } from '@/lib/model-labels';
 import * as configService from '@/services/config.service';
+import type { ComposerMode } from '@/types/api';
+
+/** What one operation on a slot costs the customer, in credits. One credit is one rupee. */
+export type ModelPrice = Record<ComposerMode, number>;
 
 /**
  * Customer-facing model naming, served from the database so an administrator can rename a slot
@@ -16,8 +20,19 @@ import * as configService from '@/services/config.service';
  */
 const BrandingContext = createContext<Record<string, ModelLabel>>(MODEL_LABELS);
 
+/**
+ * Prices ride along with the branding rather than in a request of their own: both come from the
+ * same `/config/models` payload, and a composer that showed the slot's name but not yet its price
+ * would quote nothing on first paint.
+ *
+ * Empty until that request lands. There is no sensible default price — guessing one risks quoting a
+ * number the wallet then disagrees with — so callers show no figure at all rather than a wrong one.
+ */
+const PriceContext = createContext<Record<string, ModelPrice>>({});
+
 export function ModelBrandingProvider({ children }: { children: ReactNode }) {
   const [labels, setLabels] = useState<Record<string, ModelLabel>>(MODEL_LABELS);
+  const [prices, setPrices] = useState<Record<string, ModelPrice>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -30,6 +45,11 @@ export function ModelBrandingProvider({ children }: { children: ReactNode }) {
             slots.map((s) => [s.provider, { slot: s.slot, tier: s.tier, description: s.description }]),
           ),
         );
+        setPrices(
+          Object.fromEntries(
+            slots.map((s) => [s.provider, { chat: s.chat_credit_cost, image: s.image_credit_cost }]),
+          ),
+        );
       })
       .catch(() => {
         /* keep the defaults */
@@ -39,7 +59,32 @@ export function ModelBrandingProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  return <BrandingContext.Provider value={labels}>{children}</BrandingContext.Provider>;
+  return (
+    <BrandingContext.Provider value={labels}>
+      <PriceContext.Provider value={prices}>{children}</PriceContext.Provider>
+    </BrandingContext.Provider>
+  );
+}
+
+/**
+ * What a prompt across these slots will cost, in credits — or null while prices are still
+ * unknown, so the caller can stay silent instead of quoting zero.
+ */
+export function useQuote(): (providers: string[], mode: ComposerMode) => number | null {
+  const prices = useContext(PriceContext);
+  return useCallback(
+    (providers: string[], mode: ComposerMode) => {
+      if (Object.keys(prices).length === 0) return null;
+      let total = 0;
+      for (const provider of providers) {
+        const price = prices[provider];
+        if (!price) return null;
+        total += price[mode];
+      }
+      return total;
+    },
+    [prices],
+  );
 }
 
 /** Returns a lookup for one provider's customer-facing label. */

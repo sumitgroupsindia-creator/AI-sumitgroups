@@ -71,8 +71,7 @@ async def activate_subscription(db: AsyncSession, provider_subscription_id: str)
     if credit is None:
         credit = Credit(user_id=subscription.user_id)
         db.add(credit)
-    credit.chat_balance = plan.monthly_chat_credits
-    credit.image_balance = plan.monthly_image_credits
+    credit.balance = plan.monthly_credits
 
     await db.commit()
 

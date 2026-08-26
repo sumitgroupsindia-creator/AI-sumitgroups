@@ -1,0 +1,20 @@
+# Local override for docker-compose.yml: same images, same database, plain HTTP.
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+#   open http://localhost
+#
+# Caddy still does the routing, because it is the only thing that does: the frontend image is built
+# with NEXT_PUBLIC_API_URL=/api/v1 and its own /api rewrite is baked in empty at build time, so
+# hitting the Next server directly on :3000 reaches no API at all. What changes here is only the
+# site address — ':80' makes Caddy serve HTTP instead of provisioning a certificate for a hostname
+# no local machine trusts.
+services:
+  caddy:
+    environment:
+      DOMAIN: ':80'
+    ports: !override
+      - '80:80'
+
+  # Published so the API can be exercised directly — curl, or the docs at /docs.
+  backend:
+    ports:
+      - '8000:8000'

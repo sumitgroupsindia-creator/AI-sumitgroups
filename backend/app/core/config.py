@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
 
+    # The first administrator, created at startup when both are set. There is no default:
+    # a credential shipped in source is a credential every deployment shares.
+    admin_email: str = ""
+    admin_password: str = ""
+    admin_name: str = ""
+
     openai_api_key: str = ""
     openai_chat_model: str = "gpt-4o-mini"
     openai_image_model: str = "gpt-image-1"
@@ -36,6 +42,9 @@ class Settings(BaseSettings):
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
     razorpay_webhook_secret: str = ""
+
+    # Default shape for generated images. Overridable at runtime from the admin Settings screen.
+    image_aspect: str = "portrait"
 
     storage_path: str = "./storage"
     max_upload_mb: int = 10

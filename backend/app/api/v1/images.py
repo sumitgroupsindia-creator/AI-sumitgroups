@@ -17,8 +17,8 @@ from app.schemas.image import (
     RegenerateRequest,
     UploadedFileResponse,
 )
-from app.services import image_service, upload_service
-from app.services.credit_service import InsufficientCreditsError
+from app.services import image_service, pricing_service, upload_service
+from app.services.credit_service import InsufficientCreditsError, reserve_credits
 from app.utils.file_validation import FileValidationError
 from app.utils.idempotency import get_cached_response, store_response
 from app.workers.image_tasks import run_generation_task
@@ -186,8 +186,19 @@ async def regenerate(
     providers = [payload.provider] if payload.provider else [r.provider for r in gen_request.results]
     providers = _validate_providers(providers)
 
-    costs = await image_service.get_credit_costs(db)
-    new_result_ids = []
+    # A regeneration is a fresh generation: it bills the provider again, so it has to bill the
+    # customer again too. Without this the retry was free, and — worse — a failed retry ran the
+    # orchestrator's refund against a charge that was never made, minting credits out of nothing.
+    prices = await image_service.get_image_prices(db)
+    charge = sum(
+        (prices.get(provider) or pricing_service.fallback(provider, "image")).credits
+        for provider in providers
+    )
+    try:
+        await reserve_credits(db, user.id, charge)
+    except InsufficientCreditsError as exc:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(exc))
+
     for provider in providers:
         parent = next((r for r in gen_request.results if r.provider == provider), None)
         new_result = GenerationResult(
@@ -198,8 +209,6 @@ async def regenerate(
             parent_result_id=parent.id if parent else None,
         )
         db.add(new_result)
-        await db.flush()
-        new_result_ids.append(new_result.id)
 
     gen_request.status = "processing"
     await db.commit()

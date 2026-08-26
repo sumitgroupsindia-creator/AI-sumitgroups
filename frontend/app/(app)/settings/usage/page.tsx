@@ -31,24 +31,17 @@ export default function UsageSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Chat credits</CardDescription>
-            <CardTitle className="text-3xl tabular-nums">
-              {creditsLoading ? '—' : (credits?.chat_balance ?? 0)}
-            </CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Image credits</CardDescription>
-            <CardTitle className="text-3xl tabular-nums">
-              {creditsLoading ? '—' : (credits?.image_balance ?? 0)}
-            </CardTitle>
-          </CardHeader>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardDescription>Credits left</CardDescription>
+          <CardTitle className="text-3xl tabular-nums">
+            {creditsLoading ? '—' : (credits?.balance ?? 0)}
+          </CardTitle>
+          <CardDescription className="pt-1">
+            1 credit = ₹1. Chat and images both draw on this one balance.
+          </CardDescription>
+        </CardHeader>
+      </Card>
 
       <Card>
         <CardHeader>

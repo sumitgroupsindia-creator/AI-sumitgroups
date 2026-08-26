@@ -15,5 +15,6 @@ class PublicModelSlot(BaseModel):
     description: str
     chat_enabled: bool
     image_enabled: bool
+    # What one operation on this slot costs the customer, margin included. One credit is one rupee.
     chat_credit_cost: int
     image_credit_cost: int

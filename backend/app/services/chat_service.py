@@ -13,24 +13,22 @@ from app.models.image import ProviderConfig, UploadedFile
 from app.providers.base import ChatImage, ChatMessage, ProviderError
 from app.providers.registry import get_chat_provider
 from app.services.storage.local_storage import get_storage_provider
+from app.services import pricing_service, prompt_service
 from app.services.credit_service import (
     InsufficientCreditsError,
     record_usage,
     refund_credits,
     reserve_credits,
 )
+from app.services.pricing_service import Price
 
 logger = get_logger("chat")
 
 HISTORY_WINDOW = 20  # most recent messages sent as context
 
 
-async def _get_credit_cost(db: AsyncSession, provider: str) -> int:
-    result = await db.execute(
-        select(ProviderConfig).where(ProviderConfig.provider == provider, ProviderConfig.capability == "chat")
-    )
-    config = result.scalar_one_or_none()
-    return config.credit_cost if config else 1
+async def _price(db: AsyncSession, provider: str) -> Price:
+    return await pricing_service.price_for(db, provider, "chat")
 
 
 async def get_or_create_conversation(
@@ -139,15 +137,16 @@ async def _stream_chat_message(
     upload_file_id: UUID | None,
     request_id: str,
 ) -> AsyncIterator[str]:
-    costs = {name: await _get_credit_cost(db, name) for name in provider_names}
+    prices = {name: await _price(db, name) for name in provider_names}
 
     # Reserved together: asking two models is one action to the user, and half an answer because the
     # second reservation failed would be worse than being told up front that it is unaffordable.
     try:
-        await reserve_credits(db, user_id, "chat", sum(costs.values()))
+        await reserve_credits(db, user_id, sum(price.credits for price in prices.values()))
     except InsufficientCreditsError:
         yield _sse_event(
-            "error", {"provider": None, "message": "Insufficient chat credits", "code": "insufficient_credits"}
+            "error",
+            {"provider": None, "message": "क्रेडिट ख़त्म हो गए हैं।", "code": "insufficient_credits"},
         )
         return
     await db.commit()
@@ -173,6 +172,13 @@ async def _stream_chat_message(
     image = await _load_attachment(db, upload_file_id, user_id)
     models = {name: await resolve_chat_model(db, name) for name in provider_names}
 
+    # Composed once for the turn, not once per slot: both models are answering the same request, so
+    # they get the same standing instructions — and routing it twice would pay for the same answer
+    # twice.
+    composed = await prompt_service.compose_chat(
+        db, user_message, user_id=user_id, request_id=request_id, provider=provider_names[0]
+    )
+
     # Each provider streams into a shared queue on its own task and its own DB session, so a slow
     # model never holds up a fast one and the client sees both answers fill in together.
     queue: asyncio.Queue[str | None] = asyncio.Queue()
@@ -185,9 +191,10 @@ async def _stream_chat_message(
                 conversation_id=conversation_id,
                 provider_name=name,
                 model=models[name],
-                cost=costs[name],
+                price=prices[name],
                 history=_history_for(history, name),
                 image=image,
+                system=composed.system,
                 request_id=request_id,
             )
         finally:
@@ -220,9 +227,10 @@ async def _run_provider(
     conversation_id: UUID,
     provider_name: str,
     model: str,
-    cost: int,
+    price: Price,
     history: list[Message],
     image: ChatImage | None,
+    system: str,
     request_id: str,
 ) -> None:
     # Only the current turn carries its image. Re-sending every past attachment would grow the
@@ -244,7 +252,7 @@ async def _run_provider(
 
     async with AsyncSessionLocal() as db:
         try:
-            async for chunk in provider.stream_chat(provider_messages, model):
+            async for chunk in provider.stream_chat(provider_messages, model, system=system or None):
                 full_text += chunk
                 await queue.put(_sse_event("delta", {"provider": provider_name, "content": chunk}))
         except ProviderError as exc:
@@ -283,14 +291,15 @@ async def _run_provider(
                 provider=provider_name,
                 model=model,
                 operation="chat",
-                credits_consumed=cost,
+                credits_consumed=price.credits,
+                cost_inr=price.cost_inr,
                 status="success",
                 latency_ms=latency_ms,
             )
         else:
             # Nothing generated — refund this provider's share only; a sibling that succeeded keeps
             # its charge.
-            await refund_credits(db, user_id, "chat", cost)
+            await refund_credits(db, user_id, price.credits)
             await record_usage(
                 db,
                 user_id=user_id,

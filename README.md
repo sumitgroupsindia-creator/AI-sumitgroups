@@ -12,9 +12,15 @@ results are shown side by side for comparison.
   each result renders independently, so a fast model never waits on a slow one and a failed model
   never hides a successful one
 - **Photo upload** — bring your own JPG/PNG/WEBP and use it as the generation input
-- **Credits and usage tracking** — every AI operation is metered, with failed operations refunded
+- **Credits and usage tracking** — one wallet where **1 credit = ₹1**, spent on chat and images
+  alike; every AI operation is metered and failed operations are refunded in full
 - **Subscriptions** via Razorpay, with plans and limits driven entirely from the database
-- **Admin dashboard** for users, plans, credit costs, model enable/disable and failure inspection
+- **Editable master prompts** — the assistant's identity and house style live in the database; a
+  router picks the writing style that fits each request, and an attached photo is read before
+  anything is generated from it
+- **Per-operation margin** — admins record what each provider bills us and what to charge on top,
+  and see revenue, cost and profit per slot
+- **Admin dashboard** for users, plans, pricing, model enable/disable and failure inspection
 
 ## Tech stack
 
@@ -55,6 +61,11 @@ Requires Python 3.11+, Node 20+, pnpm, and running MySQL 8 + Redis.
 ```bash
 cp .env.example .env    # then fill in OPENAI_API_KEY, GEMINI_API_KEY, JWT_SECRET, DB creds
 ```
+
+Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` too and that account is created as an administrator on
+first boot. There is no built-in default admin: a credential shipped in this repository would be
+a credential every deployment shares. Once the account exists its password is left alone, so
+rotating it in the app is not undone by the next restart.
 
 Backend:
 

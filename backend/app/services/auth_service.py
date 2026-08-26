@@ -30,7 +30,7 @@ async def register_user(db: AsyncSession, email: str, password: str, full_name: 
     db.add(user)
     await db.flush()
 
-    credit = Credit(user_id=user.id, chat_balance=0, image_balance=0)
+    credit = Credit(user_id=user.id, balance=0)
     db.add(credit)
 
     free_plan = (await db.execute(select(Plan).where(Plan.code == "free"))).scalar_one_or_none()
@@ -45,8 +45,7 @@ async def register_user(db: AsyncSession, email: str, password: str, full_name: 
                 current_period_end=datetime.now(timezone.utc) + timedelta(days=3650),
             )
         )
-        credit.chat_balance = free_plan.monthly_chat_credits
-        credit.image_balance = free_plan.monthly_image_credits
+        credit.balance = free_plan.monthly_credits
 
     await db.commit()
     await db.refresh(user)

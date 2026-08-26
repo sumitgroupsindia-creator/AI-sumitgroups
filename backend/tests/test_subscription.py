@@ -75,7 +75,7 @@ async def test_plans_are_database_driven_and_public(client):
     assert {"free", "pro"} <= codes
     for plan in resp.json():
         # Limits must come from the database so the frontend never hard-codes them.
-        assert "monthly_chat_credits" in plan and "monthly_image_credits" in plan
+        assert "monthly_credits" in plan
 
 
 async def test_new_user_starts_on_free_plan(client, user_factory):
@@ -172,8 +172,7 @@ async def test_valid_webhook_activates_subscription_and_grants_credits(
     assert sub.current_period_end is not None
 
     credit = (await seeded_db.execute(select(Credit).where(Credit.user_id == uid))).scalar_one()
-    assert credit.chat_balance == 1000  # pro plan allowance
-    assert credit.image_balance == 200
+    assert credit.balance == 1000  # pro plan allowance
 
 
 async def test_webhook_for_unknown_subscription_is_ignored_not_crashed(client, fake_payment):

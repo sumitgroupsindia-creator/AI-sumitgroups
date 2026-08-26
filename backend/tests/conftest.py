@@ -1,6 +1,7 @@
 
 import os
 import uuid
+from decimal import Decimal
 from typing import AsyncIterator
 
 import pytest
@@ -21,6 +22,8 @@ from app.services import settings_service  # noqa: E402
 from app.core.deps import get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.image import ProviderConfig  # noqa: E402
+from app.models.prompt import PromptTemplate  # noqa: E402
+from app.services import prompt_service  # noqa: E402
 from app.models.settings import ProviderBrand  # noqa: E402
 from app.models.billing import Plan  # noqa: E402
 
@@ -41,6 +44,25 @@ def reset_settings_cache():
     settings_service.invalidate()
     yield
     settings_service.invalidate()
+
+
+class _NoRouting:
+    """Answers the router with "0" — no task template matched."""
+
+    async def complete(self, messages, model, system=None, max_tokens=256):
+        return "0"
+
+
+@pytest.fixture(autouse=True)
+def offline_prompt_helpers(monkeypatch):
+    """Keep the router and the photo-reader off the network.
+
+    Both are real model calls made on the way to answering. Left alone they fire on every test in
+    the suite — slow, non-deterministic, and against a fake key, so always a 401 after retries. A
+    test that cares about routing installs its own provider over this one.
+    """
+    monkeypatch.setattr(prompt_service, "get_chat_provider", lambda name: _NoRouting())
+    yield
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -84,22 +106,29 @@ async def seeded_db(db_session: AsyncSession) -> AsyncSession:
     if existing is None:
         db_session.add_all(
             [
-                Plan(code="free", name="Free", price=0, currency="INR", monthly_chat_credits=50,
-                     monthly_image_credits=10, max_upload_mb=5),
-                Plan(code="pro", name="Pro", price=999, currency="INR", monthly_chat_credits=1000,
-                     monthly_image_credits=200, max_upload_mb=10),
+                Plan(code="free", name="Free", price=0, currency="INR",
+                     monthly_credits=10, max_upload_mb=5),
+                Plan(code="pro", name="Pro", price=999, currency="INR",
+                     monthly_credits=1000, max_upload_mb=10),
             ]
         )
         db_session.add_all(
             [
+                # Mirrors the 0005 migration's seed, so a test asserting on a price is asserting
+                # on the same numbers a fresh deployment starts with: chat 1 credit, images
+                # 5 + 3 margin = 8.
                 ProviderConfig(provider="openai", capability="chat", model="gpt-4o-mini",
-                               credit_cost=1, display_name="OpenAI"),
+                               provider_cost_inr=Decimal("0.1000"), credit_cost=1, margin_credits=0,
+                               display_name="OpenAI"),
                 ProviderConfig(provider="gemini", capability="chat", model="gemini-2.0-flash",
-                               credit_cost=1, display_name="Gemini"),
+                               provider_cost_inr=Decimal("0.0500"), credit_cost=1, margin_credits=0,
+                               display_name="Gemini"),
                 ProviderConfig(provider="openai", capability="image", model="gpt-image-1",
-                               credit_cost=10, display_name="OpenAI"),
+                               provider_cost_inr=Decimal("3.7000"), credit_cost=5, margin_credits=3,
+                               display_name="OpenAI"),
                 ProviderConfig(provider="gemini", capability="image", model="gemini-2.5-flash-image",
-                               credit_cost=10, display_name="Gemini"),
+                               provider_cost_inr=Decimal("3.5000"), credit_cost=5, margin_credits=3,
+                               display_name="Gemini"),
             ]
         )
         # Mirrors the 0003 migration seed; the tests build the schema from metadata, not migrations.
@@ -109,6 +138,32 @@ async def seeded_db(db_session: AsyncSession) -> AsyncSession:
                               description="Balanced quality and speed.", sort_order=1),
                 ProviderBrand(provider="gemini", slot="Model 2", tier="Premium",
                               description="Alternative interpretation.", sort_order=2),
+            ]
+        )
+        # Mirrors the 0006 seed. The wording is trimmed — what the tests care about is which rows
+        # exist and how each kind is treated, not the prose.
+        db_session.add_all(
+            [
+                PromptTemplate(key="chat_base", scope="chat", kind="base", name="Assistant identity",
+                               description="Always applied to every chat turn.",
+                               content="You are the AI assistant of Sumit Groups.", sort_order=1),
+                PromptTemplate(key="image_base", scope="image", kind="base", name="Image house style",
+                               description="Always applied to every generated image.",
+                               content="Produce a finished, ready-to-post image.", sort_order=2),
+                PromptTemplate(key="story", scope="chat", kind="task", name="Story or script",
+                               description="The person wants a story or a script.",
+                               content="Write the piece itself, not an outline.", sort_order=10),
+                PromptTemplate(key="poster", scope="image", kind="task", name="Poster or banner",
+                               description="The image is a poster, banner or offer.",
+                               content="The headline is the design.", sort_order=12),
+                PromptTemplate(key="task_router", scope="chat", kind="tool", name="Task router",
+                               description="Picks which task template fits a request.",
+                               content="Answer with the number alone.", sort_order=90),
+                PromptTemplate(key="image_vision_brief", scope="image", kind="tool",
+                               name="Read the attached photo",
+                               description="Describes a photo the customer attached.",
+                               content="Describe the attached photo in 60 words or fewer.",
+                               sort_order=91),
             ]
         )
         await db_session.commit()

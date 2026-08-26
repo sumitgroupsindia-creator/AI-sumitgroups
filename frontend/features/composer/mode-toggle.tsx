@@ -5,9 +5,11 @@ import { ImageIcon, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ComposerMode } from '@/types/api';
 
+// English, while the prompts and starters stay Hindi: the labels name the two things the product
+// does, and those read the same on every screen and in the admin console.
 const MODES: { value: ComposerMode; label: string; icon: typeof MessageSquare }[] = [
-  { value: 'chat', label: 'लिखवाओ', icon: MessageSquare },
-  { value: 'image', label: 'बनवाओ', icon: ImageIcon },
+  { value: 'chat', label: 'Chat', icon: MessageSquare },
+  { value: 'image', label: 'Image', icon: ImageIcon },
 ];
 
 /**
@@ -29,7 +31,7 @@ export function ModeToggle({
     <div
       className={cn('inline-flex rounded-full border bg-card p-1', size === 'sm' && 'p-0.5')}
       role="radiogroup"
-      aria-label="क्या बनाना है"
+      aria-label="Chat or image"
     >
       {MODES.map(({ value: mode, label, icon: Icon }) => (
         <button

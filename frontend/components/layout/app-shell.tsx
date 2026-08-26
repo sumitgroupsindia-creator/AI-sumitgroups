@@ -119,16 +119,17 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="p-3">
           {credits && (
-            <div className="mb-3 rounded-lg bg-muted/60 px-3 py-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Chat credits</span>
-                <span className="font-medium tabular-nums">{credits.chat_balance}</span>
+            <Link
+              href="/settings/usage"
+              onClick={() => setMobileOpen(false)}
+              className="mb-3 block rounded-lg bg-muted/60 px-3 py-2 text-xs transition-colors hover:bg-muted"
+            >
+              <div className="flex items-baseline justify-between">
+                <span className="text-muted-foreground">Credits left</span>
+                <span className="text-sm font-medium tabular-nums">{credits.balance}</span>
               </div>
-              <div className="mt-1 flex justify-between">
-                <span className="text-muted-foreground">Image credits</span>
-                <span className="font-medium tabular-nums">{credits.image_balance}</span>
-              </div>
-            </div>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">1 credit = ₹1</p>
+            </Link>
           )}
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">

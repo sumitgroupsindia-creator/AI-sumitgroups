@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import * as adminService from '@/services/admin.service';
 import type { Plan } from '@/types/api';
 
-type Draft = { monthly_chat_credits: number; monthly_image_credits: number; price: number };
+type Draft = { monthly_credits: number; price: number };
 
 export default function AdminPlansPage() {
   const [plans, setPlans] = useState<Plan[] | null>(null);
@@ -26,11 +26,7 @@ export default function AdminPlansPage() {
           Object.fromEntries(
             items.map((p) => [
               p.id,
-              {
-                monthly_chat_credits: p.monthly_chat_credits,
-                monthly_image_credits: p.monthly_image_credits,
-                price: Number.parseFloat(p.price),
-              },
+              { monthly_credits: p.monthly_credits, price: Number.parseFloat(p.price) },
             ]),
           ),
         );
@@ -55,7 +51,10 @@ export default function AdminPlansPage() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Plan limits and pricing are read from the database at runtime — the frontend never hard-codes them.
+        Plan limits and pricing are read from the database at runtime — the frontend never hard-codes
+        them. One credit is one rupee, so an allowance that matches the price keeps that promise
+        literally true; granting more credits than the plan costs spends the margin set on the{' '}
+        <span className="font-medium text-foreground">Pricing</span> tab.
       </p>
       {plans.map((plan) => {
         const draft = drafts[plan.id];
@@ -71,7 +70,7 @@ export default function AdminPlansPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4 sm:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1.5">
                   <Label htmlFor={`price-${plan.id}`} className="text-xs">
                     Price ({plan.currency})
@@ -85,28 +84,19 @@ export default function AdminPlansPage() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor={`chat-${plan.id}`} className="text-xs">
-                    Chat credits
+                  <Label htmlFor={`credits-${plan.id}`} className="text-xs">
+                    Monthly credits
                   </Label>
                   <Input
-                    id={`chat-${plan.id}`}
+                    id={`credits-${plan.id}`}
                     type="number"
                     min={0}
-                    value={draft.monthly_chat_credits}
-                    onChange={(e) => update({ monthly_chat_credits: Number(e.target.value) })}
+                    value={draft.monthly_credits}
+                    onChange={(e) => update({ monthly_credits: Number(e.target.value) })}
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor={`image-${plan.id}`} className="text-xs">
-                    Image credits
-                  </Label>
-                  <Input
-                    id={`image-${plan.id}`}
-                    type="number"
-                    min={0}
-                    value={draft.monthly_image_credits}
-                    onChange={(e) => update({ monthly_image_credits: Number(e.target.value) })}
-                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    ₹{draft.monthly_credits.toLocaleString()} of usage
+                  </p>
                 </div>
                 <div className="flex items-end">
                   <Button className="w-full" disabled={busyId === plan.id} onClick={() => void save(plan)}>

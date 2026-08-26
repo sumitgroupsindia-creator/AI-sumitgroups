@@ -13,8 +13,7 @@ class PlanResponse(BaseModel):
     price: Decimal
     currency: str
     billing_interval: str
-    monthly_chat_credits: int
-    monthly_image_credits: int
+    monthly_credits: int
     max_upload_mb: int
     priority_queue: bool
 
@@ -47,8 +46,9 @@ class CheckoutResponse(BaseModel):
 
 
 class CreditsResponse(BaseModel):
-    chat_balance: int
-    image_balance: int
+    """One wallet, in credits. One credit is one rupee."""
+
+    balance: int
 
 
 class UsageRecordResponse(BaseModel):

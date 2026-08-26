@@ -1,17 +1,23 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_admin_user, get_db
-from app.models.billing import Subscription
+from app.models.billing import Subscription, UsageRecord
 from app.models.chat import Conversation
 from app.models.image import GenerationRequest, GenerationResult, ProviderConfig
+from app.models.prompt import PromptTemplate
 from app.models.settings import AppSettingAudit, ProviderBrand
 from app.models.user import User
 from app.schemas.admin import (
+    AdminPricingResponse,
+    AdminPromptTemplateResponse,
+    AdminUpdatePromptTemplateRequest,
+    AdminPricingRow,
     AdminProviderBrandResponse,
     AdminProviderConfigResponse,
     AdminSettingAuditResponse,
@@ -24,7 +30,7 @@ from app.schemas.admin import (
     AdminUpdateUserRequest,
     AdminUserResponse,
 )
-from app.services import settings_service
+from app.services import pricing_service, settings_service
 from app.schemas.billing import PlanResponse
 from app.schemas.image import AdminGenerationResultResponse
 from app.models.billing import Plan
@@ -97,10 +103,30 @@ async def update_plan(plan_id: UUID, payload: AdminUpdatePlanRequest, db: AsyncS
     return plan
 
 
+def _config_response(config: ProviderConfig) -> AdminProviderConfigResponse:
+    """Prices go out with the charge and the profit already worked out, from the same calculation
+    the billing path uses — an administrator should never have to add the margin up by eye and get
+    a different answer than the wallet does."""
+    price = pricing_service.from_config(config)
+    return AdminProviderConfigResponse(
+        id=config.id,
+        provider=config.provider,
+        capability=config.capability,
+        model=config.model,
+        is_enabled=config.is_enabled,
+        provider_cost_inr=price.cost_inr,
+        credit_cost=price.base_credits,
+        margin_credits=price.margin_credits,
+        charge_credits=price.credits,
+        profit_inr=price.profit_inr,
+        display_name=config.display_name,
+    )
+
+
 @router.get("/models", response_model=list[AdminProviderConfigResponse])
 async def list_provider_configs(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ProviderConfig).order_by(ProviderConfig.provider, ProviderConfig.capability))
-    return result.scalars().all()
+    return [_config_response(config) for config in result.scalars().all()]
 
 
 @router.patch("/models/{config_id}", response_model=AdminProviderConfigResponse)
@@ -115,7 +141,96 @@ async def update_provider_config(
         setattr(config, field, value)
     await db.commit()
     await db.refresh(config)
-    return config
+    return _config_response(config)
+
+
+# Chat is billed per turn and images per picture; the ledger records the narrower operation names,
+# so they are folded back to the capability a price is configured against. The `assist_*` rows are
+# the product's own helper calls — routing a request to a style, reading an attached photo. They
+# earn nothing and are billed to us, which is exactly why they belong in this report.
+_CAPABILITY_OF_OPERATION = {
+    "chat": "chat",
+    "image_generate": "image",
+    "image_edit": "image",
+    "assist_route": "chat",
+    "assist_vision": "chat",
+}
+
+
+@router.get("/pricing", response_model=AdminPricingResponse)
+async def get_pricing(db: AsyncSession = Depends(get_db), days: int = Query(30, ge=1, le=365)):
+    """Current prices next to what they actually earned.
+
+    Revenue and spend come from `usage_records`, not from recomputing today's prices over past
+    operations — repricing a provider tomorrow must not rewrite what last month made. Only
+    successful operations count: a failure is refunded, so it earned nothing and, as far as we can
+    tell, cost nothing.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    # Operations counts only what was sold, while spend covers everything that ran — a helper call
+    # costs money without being a thing the customer asked for, and counting it as one would make
+    # the per-operation figures read lower than they are.
+    ledger = (
+        await db.execute(
+            select(
+                UsageRecord.provider,
+                UsageRecord.operation,
+                func.coalesce(func.sum(case((UsageRecord.credits_consumed > 0, 1), else_=0)), 0),
+                func.coalesce(func.sum(UsageRecord.credits_consumed), 0),
+                func.coalesce(func.sum(UsageRecord.cost_inr), 0),
+            )
+            .where(UsageRecord.status == "success", UsageRecord.created_at >= since)
+            .group_by(UsageRecord.provider, UsageRecord.operation)
+        )
+    ).all()
+
+    totals: dict[tuple[str, str], tuple[int, Decimal, Decimal]] = {}
+    for provider, operation, count, credits, spend in ledger:
+        capability = _CAPABILITY_OF_OPERATION.get(operation)
+        if capability is None:
+            continue
+        seen_count, seen_revenue, seen_spend = totals.get((provider, capability), (0, Decimal(0), Decimal(0)))
+        totals[(provider, capability)] = (
+            seen_count + count,
+            seen_revenue + Decimal(credits),
+            seen_spend + Decimal(spend),
+        )
+
+    configs = (
+        await db.execute(select(ProviderConfig).order_by(ProviderConfig.capability, ProviderConfig.provider))
+    ).scalars().all()
+
+    rows: list[AdminPricingRow] = []
+    for config in configs:
+        price = pricing_service.from_config(config)
+        operations, revenue, spend = totals.get((config.provider, config.capability), (0, Decimal(0), Decimal(0)))
+        rows.append(
+            AdminPricingRow(
+                provider=config.provider,
+                capability=config.capability,
+                model=config.model,
+                display_name=config.display_name,
+                is_enabled=config.is_enabled,
+                cost_inr=price.cost_inr,
+                base_credits=price.base_credits,
+                margin_credits=price.margin_credits,
+                charge_credits=price.credits,
+                profit_per_op_inr=price.profit_inr,
+                operations=operations,
+                revenue_inr=revenue,
+                spend_inr=spend,
+                profit_inr=revenue - spend,
+            )
+        )
+
+    return AdminPricingResponse(
+        days=days,
+        rows=rows,
+        total_operations=sum(row.operations for row in rows),
+        total_revenue_inr=sum((row.revenue_inr for row in rows), Decimal(0)),
+        total_spend_inr=sum((row.spend_inr for row in rows), Decimal(0)),
+        total_profit_inr=sum((row.profit_inr for row in rows), Decimal(0)),
+    )
 
 
 @router.get("/generations/failed", response_model=list[AdminGenerationResultResponse])
@@ -137,6 +252,34 @@ async def list_failed_generations(
         )
         for r in results
     ]
+
+
+@router.get("/prompts", response_model=list[AdminPromptTemplateResponse])
+async def list_prompt_templates(db: AsyncSession = Depends(get_db)):
+    """The instructions the product adds to every request. See `app.services.prompt_service`."""
+    result = await db.execute(select(PromptTemplate).order_by(PromptTemplate.sort_order))
+    return result.scalars().all()
+
+
+@router.patch("/prompts/{template_id}", response_model=AdminPromptTemplateResponse)
+async def update_prompt_template(
+    template_id: UUID, payload: AdminUpdatePromptTemplateRequest, db: AsyncSession = Depends(get_db)
+):
+    """Reword a template, or switch it off.
+
+    `key`, `scope` and `kind` are deliberately not editable: the code looks templates up by key and
+    treats each kind differently, so letting those change from a text box would let an administrator
+    quietly detach a row from the thing that reads it.
+    """
+    result = await db.execute(select(PromptTemplate).where(PromptTemplate.id == template_id))
+    template = result.scalar_one_or_none()
+    if template is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt template not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(template, field, value)
+    await db.commit()
+    await db.refresh(template)
+    return template
 
 
 @router.get("/brands", response_model=list[AdminProviderBrandResponse])

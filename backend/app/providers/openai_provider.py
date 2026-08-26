@@ -5,7 +5,14 @@ from typing import AsyncIterator
 from openai import APIError, APIStatusError, APITimeoutError, AsyncOpenAI
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from app.providers.base import ChatMessage, ChatProvider, ImageProvider, ImageResult, ProviderError
+from app.providers.base import (
+    Aspect,
+    ChatMessage,
+    ChatProvider,
+    ImageProvider,
+    ImageResult,
+    ProviderError,
+)
 from app.services import settings_service
 
 
@@ -33,24 +40,59 @@ def _to_openai_message(message: ChatMessage) -> dict:
     }
 
 
+# gpt-image-1's supported sizes. Portrait is 2:3 rather than a true 9:16 — the closest the API
+# offers — so the prompt still asks for a mobile composition on top of this.
+_SIZES: dict[str, str] = {
+    "portrait": "1024x1536",
+    "square": "1024x1024",
+    "landscape": "1536x1024",
+}
+
+
+def _with_system(messages: list[ChatMessage], system: str | None) -> list[dict]:
+    """OpenAI takes standing instructions as a system message at the head of the list."""
+    head = [{"role": "system", "content": system}] if system else []
+    return head + [_to_openai_message(m) for m in messages]
+
+
 class OpenAIProvider(ChatProvider, ImageProvider):
     name = "openai"
 
     async def _client(self) -> AsyncOpenAI:
         return _client_for(await settings_service.get_str("openai_api_key"))
 
-    async def stream_chat(self, messages: list[ChatMessage], model: str) -> AsyncIterator[str]:
+    async def stream_chat(
+        self, messages: list[ChatMessage], model: str, system: str | None = None
+    ) -> AsyncIterator[str]:
         try:
             client = await self._client()
             stream = await client.chat.completions.create(
                 model=model,
-                messages=[_to_openai_message(m) for m in messages],
+                messages=_with_system(messages, system),
                 stream=True,
             )
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
                 if delta:
                     yield delta
+        except APITimeoutError as exc:
+            raise ProviderError("openai", "OpenAI request timed out", retryable=True) from exc
+        except APIStatusError as exc:
+            retryable = exc.status_code in (429, 500, 502, 503, 504)
+            raise ProviderError("openai", f"OpenAI error: {exc.status_code}", retryable=retryable) from exc
+        except APIError as exc:
+            raise ProviderError("openai", "OpenAI request failed", retryable=True) from exc
+
+    async def complete(
+        self, messages: list[ChatMessage], model: str, system: str | None = None, max_tokens: int = 256
+    ) -> str:
+        try:
+            result = await (await self._client()).chat.completions.create(
+                model=model,
+                messages=_with_system(messages, system),
+                max_tokens=max_tokens,
+            )
+            return (result.choices[0].message.content or "").strip() if result.choices else ""
         except APITimeoutError as exc:
             raise ProviderError("openai", "OpenAI request timed out", retryable=True) from exc
         except APIStatusError as exc:
@@ -66,21 +108,27 @@ class OpenAIProvider(ChatProvider, ImageProvider):
         reraise=True,
     )
     async def generate_image(
-        self, prompt: str, model: str, input_image: bytes | None = None, input_mime: str | None = None
+        self,
+        prompt: str,
+        model: str,
+        input_image: bytes | None = None,
+        input_mime: str | None = None,
+        aspect: Aspect = "portrait",
     ) -> ImageResult:
+        size = _SIZES.get(aspect, _SIZES["portrait"])
         try:
             if input_image is not None:
                 result = await (await self._client()).images.edit(
                     model=model,
                     image=("input.png", input_image, input_mime or "image/png"),
                     prompt=prompt,
-                    size="1024x1024",
+                    size=size,
                 )
             else:
                 result = await (await self._client()).images.generate(
                     model=model,
                     prompt=prompt,
-                    size="1024x1024",
+                    size=size,
                     n=1,
                 )
             b64 = result.data[0].b64_json
