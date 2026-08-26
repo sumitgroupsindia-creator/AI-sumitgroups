@@ -2,6 +2,7 @@
 product depends on: if one provider fails, the other's result must still be delivered."""
 import asyncio
 import io
+import time
 import uuid
 
 import pytest
@@ -29,14 +30,22 @@ class _FakeProvider:
         self.name = name
         self._behavior = behavior
         self.calls = 0
+        # When this provider was inside generate_image, so a test can ask whether two of them were
+        # ever in flight at the same moment.
+        self.started_at: float | None = None
+        self.finished_at: float | None = None
 
     async def generate_image(self, prompt, model, input_image=None, input_mime=None, aspect="portrait"):
         self.calls += 1
-        if self._behavior == "fail":
-            raise ProviderError(self.name, "simulated provider outage", retryable=False)
-        if self._behavior == "slow":
-            await asyncio.sleep(0.2)
-        return ImageResult(image_bytes=_png_bytes(), content_type="image/png")
+        self.started_at = time.perf_counter()
+        try:
+            if self._behavior == "fail":
+                raise ProviderError(self.name, "simulated provider outage", retryable=False)
+            if self._behavior == "slow":
+                await asyncio.sleep(0.2)
+            return ImageResult(image_bytes=_png_bytes(), content_type="image/png")
+        finally:
+            self.finished_at = time.perf_counter()
 
 
 @pytest.fixture
@@ -209,14 +218,19 @@ async def test_failed_provider_credits_are_refunded(client, seeded_db, user_fact
 
 
 async def test_providers_run_concurrently_not_sequentially(
-    client, seeded_db, user_factory, monkeypatch, fake_providers
+    client, seeded_db, user_factory, fake_providers
 ):
-    """Two 0.2s providers must finish in well under 0.4s if they truly run in parallel."""
-    import time
+    """One slot must never wait for the other.
 
+    Asserted as an overlap rather than as a stopwatch on the whole call. A total-elapsed budget was
+    really measuring "generation plus everything around it", so it broke the moment prompt
+    composition added a few database round-trips before the fan-out — and it would have gone on
+    breaking on any machine with a slower database. Whether two coroutines were in flight together
+    is a fact about the code; how long the surrounding work takes is a fact about the hardware.
+    """
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
-    fake_providers(openai_behavior="slow", gemini_behavior="slow")
+    providers = fake_providers(openai_behavior="slow", gemini_behavior="slow")
 
     from app.models.billing import Credit
 
@@ -228,10 +242,21 @@ async def test_providers_run_concurrently_not_sequentially(
         "/api/v1/images/generate", headers=user["headers"],
         json={"prompt": "x", "providers": ["openai", "gemini"]},
     )
-    started = time.perf_counter()
     await image_orchestrator.run_generation(uuid.UUID(resp.json()["id"]))
-    elapsed = time.perf_counter() - started
-    assert elapsed < 0.38, f"providers appear to run sequentially ({elapsed:.2f}s)"
+
+    openai, gemini = providers["openai"], providers["gemini"]
+    assert openai.calls == 1 and gemini.calls == 1, "both slots must have been asked"
+    assert None not in (openai.started_at, openai.finished_at, gemini.started_at, gemini.finished_at)
+
+    # There was a moment when neither had finished and both had begun. Run sequentially, the second
+    # provider's start would fall after the first one's finish and this would not hold.
+    latest_start = max(openai.started_at, gemini.started_at)
+    earliest_finish = min(openai.finished_at, gemini.finished_at)
+    assert latest_start < earliest_finish, (
+        "providers ran one after the other: "
+        f"openai {openai.started_at:.3f}-{openai.finished_at:.3f}, "
+        f"gemini {gemini.started_at:.3f}-{gemini.finished_at:.3f}"
+    )
 
 
 async def test_regenerate_creates_new_result_linked_to_parent(client, seeded_db, user_factory, monkeypatch):
