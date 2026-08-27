@@ -95,7 +95,9 @@ async def test_generate_debits_credits_for_each_provider(client, seeded_db, user
         json={"prompt": "x", "providers": ["openai", "gemini"]},
     )
     credits = (await client.get("/api/v1/credits", headers=user["headers"])).json()
-    assert credits["balance"] == 100 - 16  # 8 per provider (5 base + 3 margin), both up front
+    # Each slot charges its own vendor bill plus the 3-credit margin: openai ₹3.70 + 3 = 6.70,
+    # gemini ₹3.50 + 3 = 6.50. Both reserved up front.
+    assert credits["balance"] == pytest.approx(100 - 13.2)
 
 
 async def test_partial_reservation_is_rolled_back_when_second_provider_unaffordable(
@@ -106,7 +108,7 @@ async def test_partial_reservation_is_rolled_back_when_second_provider_unafforda
     user = await user_factory()
 
     uid = await _user_id(seeded_db, user["email"])
-    await _top_up(seeded_db, uid, amount=15)  # covers one slot at 8, not two at 16
+    await _top_up(seeded_db, uid, amount=10)  # covers one slot at 6.70, not two at 13.20
 
     resp = await client.post(
         "/api/v1/images/generate", headers=user["headers"],
@@ -115,7 +117,7 @@ async def test_partial_reservation_is_rolled_back_when_second_provider_unafforda
     assert resp.status_code == 402
 
     credits = (await client.get("/api/v1/credits", headers=user["headers"])).json()
-    assert credits["balance"] == 15
+    assert credits["balance"] == 10
 
 
 async def test_both_providers_run_and_persist_images(client, seeded_db, user_factory, monkeypatch, fake_providers):

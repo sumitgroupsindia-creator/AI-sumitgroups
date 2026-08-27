@@ -38,10 +38,11 @@ async def public_model_slots(db: AsyncSession = Depends(get_db)):
                 description=brand.description,
                 chat_enabled=bool(chat and chat.is_enabled),
                 image_enabled=bool(image and image.is_enabled),
-                # The full charge, margin included — the number the wallet will actually be
-                # debited by, so the price quoted in the composer matches what gets taken.
-                chat_credit_cost=pricing_service.from_config(chat).credits if chat else 0,
-                image_credit_cost=pricing_service.from_config(image).credits if image else 0,
+                # `typical_credits`, not `credits`: a flat-priced slot quotes exactly what it
+                # charges, while a metered one quotes a representative turn, since the real figure
+                # depends on an answer nobody has written yet.
+                chat_credit_cost=pricing_service.from_config(chat).typical_credits if chat else 0,
+                image_credit_cost=pricing_service.from_config(image).typical_credits if image else 0,
             )
         )
     return slots

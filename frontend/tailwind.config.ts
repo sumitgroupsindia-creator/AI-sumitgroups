@@ -18,6 +18,8 @@ const config: Config = {
         muted: { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
         accent: { DEFAULT: 'hsl(var(--accent))', foreground: 'hsl(var(--accent-foreground))' },
         card: { DEFAULT: 'hsl(var(--card))', foreground: 'hsl(var(--card-foreground))' },
+        popover: { DEFAULT: 'hsl(var(--popover))', foreground: 'hsl(var(--popover-foreground))' },
+        success: 'hsl(var(--success))',
       },
       borderRadius: {
         lg: 'var(--radius)',
@@ -27,10 +29,15 @@ const config: Config = {
       keyframes: {
         'fade-in': { from: { opacity: '0', transform: 'translateY(4px)' }, to: { opacity: '1', transform: 'none' } },
         shimmer: { '100%': { transform: 'translateX(100%)' } },
+        'pop-in': {
+          from: { opacity: '0', transform: 'translateY(6px) scale(0.98)' },
+          to: { opacity: '1', transform: 'none' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 0.25s ease-out',
         shimmer: 'shimmer 1.6s infinite',
+        'pop-in': 'pop-in 0.14s ease-out',
       },
     },
   },

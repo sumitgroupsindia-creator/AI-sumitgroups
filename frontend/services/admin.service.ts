@@ -6,10 +6,11 @@ import type {
   AdminSettingAudit,
   AdminStats,
   AdminUser,
+  AdminUserDetail,
   Plan,
+  PromptTemplate,
   ProviderBrand,
   ProviderConfig,
-  PromptTemplate,
 } from '@/types/api';
 
 export function getStats(): Promise<AdminStats> {
@@ -18,6 +19,10 @@ export function getStats(): Promise<AdminStats> {
 
 export function listUsers(limit = 50, offset = 0): Promise<AdminUser[]> {
   return apiFetch<AdminUser[]>(`/admin/users?limit=${limit}&offset=${offset}`);
+}
+
+export function getUserDetail(id: string, recent = 25): Promise<AdminUserDetail> {
+  return apiFetch<AdminUserDetail>(`/admin/users/${id}?recent=${recent}`);
 }
 
 export function updateUser(id: string, patch: { is_active?: boolean; is_admin?: boolean }): Promise<AdminUser> {
@@ -47,8 +52,10 @@ export function updateProviderConfig(
   patch: {
     is_enabled?: boolean;
     provider_cost_inr?: number;
-    credit_cost?: number;
     margin_credits?: number;
+    input_cost_per_mtok_inr?: number;
+    output_cost_per_mtok_inr?: number;
+    markup_multiplier?: number;
     model?: string;
     display_name?: string;
   },

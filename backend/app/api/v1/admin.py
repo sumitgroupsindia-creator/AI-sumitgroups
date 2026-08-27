@@ -7,7 +7,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_admin_user, get_db
-from app.models.billing import Subscription, UsageRecord
+from app.models.billing import Credit, Subscription, UsageRecord
 from app.models.chat import Conversation
 from app.models.image import GenerationRequest, GenerationResult, ProviderConfig
 from app.models.prompt import PromptTemplate
@@ -28,7 +28,10 @@ from app.schemas.admin import (
     AdminUpdateProviderConfigRequest,
     AdminUpdateSettingsRequest,
     AdminUpdateUserRequest,
+    AdminUserDetailResponse,
+    AdminUsageBreakdownRow,
     AdminUserResponse,
+    AdminUserUsageRecord,
 )
 from app.services import pricing_service, settings_service
 from app.schemas.billing import PlanResponse
@@ -67,6 +70,103 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
 async def list_users(db: AsyncSession = Depends(get_db), limit: int = Query(50, le=200), offset: int = Query(0, ge=0)):
     result = await db.execute(select(User).order_by(User.created_at.desc()).limit(limit).offset(offset))
     return result.scalars().all()
+
+
+@router.get("/users/{user_id}", response_model=AdminUserDetailResponse)
+async def get_user_detail(user_id: UUID, db: AsyncSession = Depends(get_db), recent: int = Query(25, le=200)):
+    """One customer, end to end: plan, wallet, and what their usage cost us.
+
+    Revenue and cost both come from `usage_records` rather than from recomputing today's prices over
+    past operations — repricing a slot tomorrow must not rewrite what last month earned. Failed
+    operations are excluded: they were refunded, so they earned nothing and delivered nothing.
+    """
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # The live subscription, newest first — a customer who upgraded has more than one row, and the
+    # plan they are on is the most recent one, not the first.
+    subscription = (
+        await db.execute(
+            select(Subscription)
+            .where(Subscription.user_id == user_id)
+            .order_by(Subscription.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    plan = (
+        (await db.execute(select(Plan).where(Plan.id == subscription.plan_id))).scalar_one_or_none()
+        if subscription is not None
+        else None
+    )
+
+    credit = (await db.execute(select(Credit).where(Credit.user_id == user_id))).scalar_one_or_none()
+
+    grouped = (
+        await db.execute(
+            select(
+                UsageRecord.provider,
+                UsageRecord.operation,
+                func.count(UsageRecord.id),
+                func.coalesce(func.sum(UsageRecord.credits_consumed), 0),
+                func.coalesce(func.sum(UsageRecord.cost_inr), 0),
+                func.coalesce(func.sum(UsageRecord.input_tokens), 0),
+                func.coalesce(func.sum(UsageRecord.output_tokens), 0),
+            )
+            .where(UsageRecord.user_id == user_id, UsageRecord.status == "success")
+            .group_by(UsageRecord.provider, UsageRecord.operation)
+            .order_by(UsageRecord.provider, UsageRecord.operation)
+        )
+    ).all()
+
+    breakdown = [
+        AdminUsageBreakdownRow(
+            provider=provider,
+            operation=operation,
+            operations=count,
+            credits_charged=Decimal(credits),
+            vendor_cost_inr=Decimal(cost),
+            profit_inr=Decimal(credits) - Decimal(cost),
+            input_tokens=int(tokens_in or 0),
+            output_tokens=int(tokens_out or 0),
+        )
+        for provider, operation, count, credits, cost, tokens_in, tokens_out in grouped
+    ]
+
+    recent_rows = (
+        await db.execute(
+            select(UsageRecord)
+            .where(UsageRecord.user_id == user_id)
+            .order_by(UsageRecord.created_at.desc())
+            .limit(recent)
+        )
+    ).scalars().all()
+
+    return AdminUserDetailResponse(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        is_active=user.is_active,
+        is_admin=user.is_admin,
+        created_at=user.created_at,
+        plan_code=plan.code if plan else None,
+        plan_name=plan.name if plan else None,
+        plan_price=plan.price if plan else None,
+        plan_monthly_credits=plan.monthly_credits if plan else None,
+        subscription_status=subscription.status if subscription else None,
+        current_period_end=subscription.current_period_end if subscription else None,
+        credits_balance=credit.balance if credit else Decimal(0),
+        # Only what was sold counts as an operation. The `assist_*` helper calls cost money without
+        # being a thing the customer asked for, so they belong in the spend but not in the count.
+        total_operations=sum(r.operations for r in breakdown if r.credits_charged > 0),
+        total_credits_charged=sum((r.credits_charged for r in breakdown), Decimal(0)),
+        total_vendor_cost_inr=sum((r.vendor_cost_inr for r in breakdown), Decimal(0)),
+        total_profit_inr=sum((r.profit_inr for r in breakdown), Decimal(0)),
+        total_input_tokens=sum(r.input_tokens for r in breakdown),
+        total_output_tokens=sum(r.output_tokens for r in breakdown),
+        breakdown=breakdown,
+        recent=[AdminUserUsageRecord.model_validate(r) for r in recent_rows],
+    )
 
 
 @router.patch("/users/{user_id}", response_model=AdminUserResponse)
@@ -115,9 +215,12 @@ def _config_response(config: ProviderConfig) -> AdminProviderConfigResponse:
         model=config.model,
         is_enabled=config.is_enabled,
         provider_cost_inr=price.cost_inr,
-        credit_cost=price.base_credits,
         margin_credits=price.margin_credits,
-        charge_credits=price.credits,
+        input_cost_per_mtok_inr=price.input_rate_inr,
+        output_cost_per_mtok_inr=price.output_rate_inr,
+        markup_multiplier=price.markup,
+        is_metered=price.metered,
+        charge_credits=price.typical_credits,
         profit_inr=price.profit_inr,
         display_name=config.display_name,
     )
@@ -211,11 +314,11 @@ async def get_pricing(db: AsyncSession = Depends(get_db), days: int = Query(30, 
                 model=config.model,
                 display_name=config.display_name,
                 is_enabled=config.is_enabled,
-                cost_inr=price.cost_inr,
-                base_credits=price.base_credits,
+                cost_inr=price.typical_cost_inr,
                 margin_credits=price.margin_credits,
-                charge_credits=price.credits,
+                charge_credits=price.typical_credits,
                 profit_per_op_inr=price.profit_inr,
+                is_metered=price.metered,
                 operations=operations,
                 revenue_inr=revenue,
                 spend_inr=spend,

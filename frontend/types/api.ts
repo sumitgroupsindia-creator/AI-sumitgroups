@@ -104,7 +104,13 @@ export interface Subscription {
   plan: Plan;
 }
 
-/** One wallet, in credits. One credit is one rupee. */
+/**
+ * One wallet, in credits. One credit is one rupee.
+ *
+ * Fractional: a chat turn is metered on real token counts and costs a fraction of a rupee. Render
+ * it with `formatCredits`, never raw — the API sends four decimal places and almost none of them
+ * are worth showing.
+ */
 export interface Credits {
   balance: number;
 }
@@ -114,7 +120,11 @@ export interface UsageRecord {
   /** Opaque slot key — render via lib/model-labels, never show the raw value to users. */
   provider: string;
   operation: string;
+  /** Fractional on metered operations — a chat turn costs a fraction of a credit. */
   credits_consumed: number;
+  /** What the vendor reported processing. Null on flat-priced operations and on older records. */
+  input_tokens: number | null;
+  output_tokens: number | null;
   status: string;
   created_at: string;
 }
@@ -145,6 +155,63 @@ export interface AdminUser {
   created_at: string;
 }
 
+/** One customer's spend on one slot, for one kind of operation. Admin-only. */
+export interface AdminUsageBreakdownRow {
+  provider: string;
+  operation: string;
+  operations: number;
+  credits_charged: number;
+  /** What the vendor actually billed us. Never exposed on customer-facing endpoints. */
+  vendor_cost_inr: string;
+  profit_inr: string;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+/** One ledger line as an administrator sees it — vendor cost included. */
+export interface AdminUserUsageRecord {
+  id: string;
+  provider: string;
+  model: string;
+  operation: string;
+  credits_consumed: number;
+  cost_inr: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  status: string;
+  error: string | null;
+  created_at: string;
+}
+
+/** Everything about one customer: who, which plan, what is left, and what they cost us. */
+export interface AdminUserDetail {
+  id: string;
+  email: string;
+  full_name: string | null;
+  is_active: boolean;
+  is_admin: boolean;
+  created_at: string;
+
+  plan_code: string | null;
+  plan_name: string | null;
+  plan_price: string | null;
+  plan_monthly_credits: number | null;
+  subscription_status: string | null;
+  current_period_end: string | null;
+
+  credits_balance: number;
+
+  total_operations: number;
+  total_credits_charged: number;
+  total_vendor_cost_inr: string;
+  total_profit_inr: string;
+  total_input_tokens: number;
+  total_output_tokens: number;
+
+  breakdown: AdminUsageBreakdownRow[];
+  recent: AdminUserUsageRecord[];
+}
+
 /** Admin-only: administrators configure providers, so they do see real vendor names and model ids. */
 export interface AdminGenerationResult extends GenerationResult {
   model: string;
@@ -156,15 +223,21 @@ export interface ProviderConfig {
   capability: 'chat' | 'image';
   model: string;
   is_enabled: boolean;
-  /** What the vendor bills us per operation, in rupees. Decimal string from the API. */
+  /** What the vendor bills us per flat-priced operation, in rupees. Decimal string from the API. */
   provider_cost_inr: string;
-  /** Charged to the customer before margin, in credits. */
-  credit_cost: number;
-  /** Profit added per operation, in credits. Charged per generated image. */
-  margin_credits: number;
-  /** credit_cost + margin_credits — what the wallet is actually debited by. */
+  /** Flat credits added on top of the vendor's bill. This is the profit. Decimal string. */
+  margin_credits: string;
+  /** Rupees per million input tokens. Non-zero switches this slot to metered billing. */
+  input_cost_per_mtok_inr: string;
+  /** Rupees per million output tokens. */
+  output_cost_per_mtok_inr: string;
+  /** What the customer pays per rupee of vendor cost. 1.0 sells at cost. Decimal string. */
+  markup_multiplier: string;
+  /** True when this slot is billed on real token counts rather than per operation. */
+  is_metered: boolean;
+  /** What one operation charges. Exact when flat; a representative turn when metered. */
   charge_credits: number;
-  /** charge_credits − provider_cost_inr, in rupees. Decimal string from the API. */
+  /** The margin, in rupees — the charge is the vendor's bill plus it. Decimal string. */
   profit_inr: string;
   display_name: string;
 }
@@ -177,10 +250,10 @@ export interface AdminPricingRow {
   display_name: string;
   is_enabled: boolean;
   cost_inr: string;
-  base_credits: number;
-  margin_credits: number;
+  margin_credits: string;
   charge_credits: number;
   profit_per_op_inr: string;
+  is_metered: boolean;
   operations: number;
   revenue_inr: string;
   spend_inr: string;

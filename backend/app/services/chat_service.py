@@ -1,5 +1,6 @@
 import asyncio
 import time
+from decimal import Decimal
 from typing import AsyncIterator
 from uuid import UUID
 
@@ -10,7 +11,7 @@ from app.core.db import AsyncSessionLocal
 from app.core.logging import get_logger
 from app.models.chat import Conversation, Message
 from app.models.image import ProviderConfig, UploadedFile
-from app.providers.base import ChatImage, ChatMessage, ProviderError
+from app.providers.base import ChatImage, ChatMessage, ProviderError, TokenUsage
 from app.providers.registry import get_chat_provider
 from app.services.storage.local_storage import get_storage_provider
 from app.services import pricing_service, prompt_service
@@ -19,12 +20,29 @@ from app.services.credit_service import (
     record_usage,
     refund_credits,
     reserve_credits,
+    settle_credits,
 )
 from app.services.pricing_service import Price
 
 logger = get_logger("chat")
 
 HISTORY_WINDOW = 20  # most recent messages sent as context
+
+
+class _Hold:
+    """One provider's reservation, and whether anything has been done about it yet.
+
+    The wallet is debited before a model runs, so every path out of that model — answered, refused,
+    crashed, cancelled — owes the customer either a charge or a refund. This flag is what lets the
+    outer guard tell "already settled" from "nobody settled this", so a hold is released once and
+    never twice.
+    """
+
+    __slots__ = ("amount", "settled")
+
+    def __init__(self, amount: Decimal) -> None:
+        self.amount = amount
+        self.settled = False
 
 
 async def _price(db: AsyncSession, provider: str) -> Price:
@@ -139,10 +157,19 @@ async def _stream_chat_message(
 ) -> AsyncIterator[str]:
     prices = {name: await _price(db, name) for name in provider_names}
 
+    # What is held before a word is generated. On a metered slot this is a ceiling priced against
+    # the longest answer the turn could produce, not a prediction — whatever is not used comes back
+    # the moment the answer ends. Reserving the real figure is impossible: nobody knows how long an
+    # answer is until it has been written.
+    holds = {
+        name: _Hold(price.reservation_for(len(user_message), has_image=upload_file_id is not None))
+        for name, price in prices.items()
+    }
+
     # Reserved together: asking two models is one action to the user, and half an answer because the
     # second reservation failed would be worse than being told up front that it is unaffordable.
     try:
-        await reserve_credits(db, user_id, sum(price.credits for price in prices.values()))
+        await reserve_credits(db, user_id, sum((h.amount for h in holds.values()), Decimal(0)))
     except InsufficientCreditsError:
         yield _sse_event(
             "error",
@@ -184,6 +211,14 @@ async def _stream_chat_message(
     queue: asyncio.Queue[str | None] = asyncio.Queue()
 
     async def run(name: str) -> None:
+        """One provider, and a guarantee that its reservation does not vanish.
+
+        `_run_provider` settles the hold itself on every path it can see. This wrapper exists for
+        the paths it cannot: the client disconnecting mid-answer, or the session failing before the
+        ledger could be written. Without it an exception here is swallowed whole by the
+        `return_exceptions=True` gather below — no log, no refund, and the customer has paid for
+        an answer that was never delivered.
+        """
         try:
             await _run_provider(
                 queue,
@@ -192,10 +227,27 @@ async def _stream_chat_message(
                 provider_name=name,
                 model=models[name],
                 price=prices[name],
+                hold=holds[name],
                 history=_history_for(history, name),
                 image=image,
                 system=composed.system,
                 request_id=request_id,
+            )
+        except asyncio.CancelledError:
+            await _release(user_id, holds[name], provider=name, request_id=request_id)
+            raise
+        except Exception:
+            logger.exception("chat.provider_crashed", provider=name, request_id=request_id)
+            await _release(user_id, holds[name], provider=name, request_id=request_id)
+            await queue.put(
+                _sse_event(
+                    "error",
+                    {
+                        "provider": name,
+                        "message": "The AI provider failed to respond. Please retry.",
+                        "code": "provider_error",
+                    },
+                )
             )
         finally:
             await queue.put(None)  # this provider is finished, whatever happened
@@ -220,6 +272,24 @@ async def _stream_chat_message(
     yield _sse_event("done", {"conversation_id": str(conversation_id)})
 
 
+async def _release(user_id: UUID, hold: "_Hold", *, provider: str, request_id: str) -> None:
+    """Hand back a reservation nothing else has accounted for.
+
+    Opens its own session because the one that should have done this is, by definition, gone. Never
+    raises: this runs on the failure path, and a bookkeeping error here would replace a refund with
+    a second crash.
+    """
+    if hold.settled:
+        return
+    hold.settled = True
+    try:
+        async with AsyncSessionLocal() as db:
+            await refund_credits(db, user_id, hold.amount)
+            await db.commit()
+    except Exception:
+        logger.exception("chat.hold_not_released", provider=provider, request_id=request_id)
+
+
 async def _run_provider(
     queue: "asyncio.Queue[str | None]",
     *,
@@ -228,6 +298,7 @@ async def _run_provider(
     provider_name: str,
     model: str,
     price: Price,
+    hold: "_Hold",
     history: list[Message],
     image: ChatImage | None,
     system: str,
@@ -249,10 +320,16 @@ async def _run_provider(
     full_text = ""
     error_message: str | None = None
     started = time.perf_counter()
+    # Filled in by the provider as the answer arrives; read once it has finished, whether it
+    # finished by completing or by failing. A turn that broke off half way still burned the tokens
+    # it had already generated, and the vendor bills us for those.
+    usage = TokenUsage()
 
     async with AsyncSessionLocal() as db:
         try:
-            async for chunk in provider.stream_chat(provider_messages, model, system=system or None):
+            async for chunk in provider.stream_chat(
+                provider_messages, model, system=system or None, usage=usage
+            ):
                 full_text += chunk
                 await queue.put(_sse_event("delta", {"provider": provider_name, "content": chunk}))
         except ProviderError as exc:
@@ -270,10 +347,34 @@ async def _run_provider(
                     },
                 )
             )
+        except Exception as exc:
+            # A vendor SDK that raises something its own error hierarchy does not cover — a bad
+            # key, a changed method signature, a malformed response. Caught here so it lands on
+            # the refund-and-record path below like any other failure, rather than escaping and
+            # taking the customer's reservation with it.
+            error_message = f"{type(exc).__name__}: {exc}"
+            logger.exception(
+                "chat.provider_unhandled", provider=provider_name, request_id=request_id
+            )
+            await queue.put(
+                _sse_event(
+                    "error",
+                    {
+                        "provider": provider_name,
+                        "message": "The AI provider failed to respond. Please retry.",
+                        "code": "provider_error",
+                    },
+                )
+            )
 
         latency_ms = int((time.perf_counter() - started) * 1000)
 
         if full_text:
+            # What the answer actually cost, from the vendor's own token counts. `settle` falls
+            # back to the flat configured price when the vendor reported nothing, so a silent
+            # provider produces a slightly wrong bill rather than a free one.
+            charge, cost_inr = price.settle(usage)
+
             db.add(
                 Message(
                     conversation_id=conversation_id,
@@ -284,6 +385,9 @@ async def _run_provider(
                     error=error_message,
                 )
             )
+            # The reservation was a ceiling. This is where the difference goes back.
+            hold.settled = True
+            await settle_credits(db, user_id, reserved=hold.amount, actual=charge)
             await record_usage(
                 db,
                 user_id=user_id,
@@ -291,15 +395,18 @@ async def _run_provider(
                 provider=provider_name,
                 model=model,
                 operation="chat",
-                credits_consumed=price.credits,
-                cost_inr=price.cost_inr,
+                credits_consumed=charge,
+                cost_inr=cost_inr,
+                input_tokens=usage.input_tokens if usage.reported else None,
+                output_tokens=usage.output_tokens if usage.reported else None,
                 status="success",
                 latency_ms=latency_ms,
             )
         else:
-            # Nothing generated — refund this provider's share only; a sibling that succeeded keeps
-            # its charge.
-            await refund_credits(db, user_id, price.credits)
+            # Nothing generated — refund this provider's whole hold; a sibling that succeeded keeps
+            # its charge. The customer pays for answers, not for attempts.
+            hold.settled = True
+            await refund_credits(db, user_id, hold.amount)
             await record_usage(
                 db,
                 user_id=user_id,
@@ -307,8 +414,10 @@ async def _run_provider(
                 provider=provider_name,
                 model=model,
                 operation="chat",
-                credits_consumed=0,
+                credits_consumed=Decimal(0),
                 status="failed",
+                input_tokens=usage.input_tokens if usage.reported else None,
+                output_tokens=usage.output_tokens if usage.reported else None,
                 latency_ms=latency_ms,
                 error=error_message,
             )

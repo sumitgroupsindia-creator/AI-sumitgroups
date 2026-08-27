@@ -16,7 +16,7 @@ from app.services.credit_service import (
 
 # The free plan seeded in conftest, and the seeded image price: 5 base + 3 margin.
 FREE_CREDITS = 10
-IMAGE_CHARGE = 8
+IMAGE_CHARGE = Decimal("6.7")  # ₹3.70 vendor bill + 3 margin
 
 
 async def _user_id(db: AsyncSession, email: str):
@@ -183,7 +183,7 @@ async def test_usage_response_hides_what_the_operation_cost_us(client, seeded_db
 
     body = (await client.get("/api/v1/usage", headers=user["headers"])).json()
     assert "cost_inr" not in body[0]
-    assert body[0]["credits_consumed"] == IMAGE_CHARGE
+    assert body[0]["credits_consumed"] == float(IMAGE_CHARGE)
 
 
 async def test_image_generation_rejected_without_enough_credits(client, seeded_db, user_factory):

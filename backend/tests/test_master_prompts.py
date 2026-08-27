@@ -27,11 +27,11 @@ class _FakeChat:
         self.systems: list[str | None] = []
         self.completions: list[dict] = []
 
-    async def stream_chat(self, messages, model, system=None):
+    async def stream_chat(self, messages, model, system=None, usage=None):
         self.systems.append(system)
         yield "ok"
 
-    async def complete(self, messages, model, system=None, max_tokens=256):
+    async def complete(self, messages, model, system=None, max_tokens=256, usage=None):
         if self._fail_complete:
             raise ProviderError("fake", "router is down", retryable=False)
         self.completions.append({"messages": messages, "system": system, "max_tokens": max_tokens})

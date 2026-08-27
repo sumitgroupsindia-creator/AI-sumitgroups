@@ -20,7 +20,7 @@ from app.models.user import User
 from app.providers.base import ImageResult, ProviderError
 from app.services import image_orchestrator, image_service
 
-IMAGE_CHARGE = 8  # 5 base + 3 margin
+IMAGE_CHARGE = Decimal("6.7")  # ₹3.70 vendor bill + 3 margin
 OPENAI_IMAGE_COST = Decimal("3.7000")
 OPENAI_CHAT_COST = Decimal("0.1000")  # what one router or photo-reading call costs us
 
@@ -46,7 +46,10 @@ async def restore_prices(seeded_db):
     """The schema is built once for the whole session, so provider prices survive between tests.
     Anything a test repriced is put back, or the next test is asserting against someone else's
     numbers — which is exactly how the first draft of this file failed."""
-    columns = ("provider_cost_inr", "credit_cost", "margin_credits")
+    columns = (
+        "provider_cost_inr", "margin_credits",
+        "input_cost_per_mtok_inr", "output_cost_per_mtok_inr", "markup_multiplier",
+    )
     before = {
         row.id: {column: getattr(row, column) for column in columns}
         for row in (await seeded_db.execute(select(ProviderConfig))).scalars().all()
@@ -106,7 +109,7 @@ async def test_image_charges_base_plus_margin(client, seeded_db, user_factory, m
     )
 
     balance = (await client.get("/api/v1/credits", headers=user["headers"])).json()["balance"]
-    assert balance == 100 - IMAGE_CHARGE
+    assert balance == pytest.approx(float(Decimal(100) - IMAGE_CHARGE))
 
 
 async def test_margin_is_charged_per_picture_not_per_prompt(client, seeded_db, user_factory, monkeypatch):
@@ -120,8 +123,10 @@ async def test_margin_is_charged_per_picture_not_per_prompt(client, seeded_db, u
         json={"prompt": "x", "providers": ["openai", "gemini"]},
     )
 
+    # Two slots, two vendor bills, two margins — and the bills differ, so this is not simply
+    # twice one slot: openai ₹3.70 + 3, gemini ₹3.50 + 3.
     balance = (await client.get("/api/v1/credits", headers=user["headers"])).json()["balance"]
-    assert balance == 100 - 2 * IMAGE_CHARGE
+    assert balance == pytest.approx(float(Decimal(100) - IMAGE_CHARGE - Decimal("6.5")))
 
 
 async def test_chat_and_images_draw_on_the_same_wallet(client, seeded_db, user_factory, monkeypatch):
@@ -181,8 +186,11 @@ async def test_regenerate_charges_again(client, seeded_db, user_factory, monkeyp
     )
     assert resp.status_code == 202
 
+    # Two slots, two vendor bills, two margins — and the bills differ, so this is not simply
+    # twice one slot: openai ₹3.70 + 3, gemini ₹3.50 + 3.
     balance = (await client.get("/api/v1/credits", headers=user["headers"])).json()["balance"]
-    assert balance == 100 - 2 * IMAGE_CHARGE
+    # Both charges are openai's, so this one really is twice the same slot.
+    assert balance == pytest.approx(float(Decimal(100) - 2 * IMAGE_CHARGE))
 
 
 async def test_regenerate_is_refused_when_the_wallet_is_empty(
@@ -238,10 +246,10 @@ async def test_admin_models_expose_cost_charge_and_profit(client, seeded_db, use
     image_row = next(r for r in rows if r["provider"] == "openai" and r["capability"] == "image")
 
     assert Decimal(image_row["provider_cost_inr"]) == OPENAI_IMAGE_COST
-    assert image_row["credit_cost"] == 5
-    assert image_row["margin_credits"] == 3
-    assert image_row["charge_credits"] == IMAGE_CHARGE
-    assert Decimal(image_row["profit_inr"]) == Decimal(IMAGE_CHARGE) - OPENAI_IMAGE_COST
+    assert Decimal(image_row["margin_credits"]) == 3
+    # The charge is the vendor's bill plus the margin, so the profit *is* the margin.
+    assert image_row["charge_credits"] == float(IMAGE_CHARGE)
+    assert Decimal(image_row["profit_inr"]) == Decimal(3)
 
 
 async def test_admin_can_change_the_margin_and_the_wallet_follows(
@@ -255,7 +263,7 @@ async def test_admin_can_change_the_margin_and_the_wallet_follows(
     updated = await client.patch(
         f"/api/v1/admin/models/{image_row['id']}", headers=headers, json={"margin_credits": 10}
     )
-    assert updated.json()["charge_credits"] == 15
+    assert updated.json()["charge_credits"] == float(OPENAI_IMAGE_COST + 10)
 
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
@@ -266,16 +274,23 @@ async def test_admin_can_change_the_margin_and_the_wallet_follows(
         json={"prompt": "x", "providers": ["openai"]},
     )
     balance = (await client.get("/api/v1/credits", headers=user["headers"])).json()["balance"]
-    assert balance == 100 - 15
+    assert balance == pytest.approx(float(Decimal(100) - (OPENAI_IMAGE_COST + 10)))
 
 
 async def test_public_slots_quote_the_full_charge_including_margin(client, seeded_db):
-    """What the composer shows must be what the wallet takes, or the price on screen is a lie."""
+    """What the composer shows must be what the wallet takes, or the price on screen is a lie.
+
+    Exactly so for a picture, which has one price. Chat is metered, so the quote is a representative
+    turn rather than a promise — but it still has to be in the right region, and the old flat "1
+    credit" was roughly thirty times over.
+    """
     slots = (await client.get("/api/v1/config/models")).json()
     openai_slot = next(s for s in slots if s["provider"] == "openai")
 
-    assert openai_slot["image_credit_cost"] == IMAGE_CHARGE
-    assert openai_slot["chat_credit_cost"] == 1
+    assert openai_slot["image_credit_cost"] == float(IMAGE_CHARGE)
+    # 700 in + 400 out at the seeded rates costs ₹0.0304; the customer pays that plus the
+    # 0.5-credit margin.
+    assert openai_slot["chat_credit_cost"] == pytest.approx(0.5304)
 
 
 async def test_pricing_report_totals_revenue_cost_and_profit(
@@ -300,15 +315,15 @@ async def test_pricing_report_totals_revenue_cost_and_profit(
     # One picture sold. The router that chose its style ran too, and cost us a chat call — so spend
     # is the picture plus that call, while the operation count stays at the one thing we sold.
     assert after["total_operations"] - before["total_operations"] == 1
-    assert Decimal(after["total_revenue_inr"]) - Decimal(before["total_revenue_inr"]) == Decimal(IMAGE_CHARGE)
+    assert Decimal(after["total_revenue_inr"]) - Decimal(before["total_revenue_inr"]) == IMAGE_CHARGE
     spend = Decimal(after["total_spend_inr"]) - Decimal(before["total_spend_inr"])
     assert spend == OPENAI_IMAGE_COST + OPENAI_CHAT_COST
     assert Decimal(after["total_profit_inr"]) - Decimal(before["total_profit_inr"]) == (
-        Decimal(IMAGE_CHARGE) - spend
+        IMAGE_CHARGE - spend
     )
 
     row = next(r for r in after["rows"] if r["provider"] == "openai" and r["capability"] == "image")
-    assert row["charge_credits"] == IMAGE_CHARGE
+    assert row["charge_credits"] == float(IMAGE_CHARGE)
 
 
 async def test_pricing_report_excludes_refunded_failures(

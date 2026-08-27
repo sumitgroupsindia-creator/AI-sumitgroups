@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from decimal import Decimal
+
+from pydantic import BaseModel, field_serializer
 
 
 class PublicModelSlot(BaseModel):
@@ -16,5 +18,13 @@ class PublicModelSlot(BaseModel):
     chat_enabled: bool
     image_enabled: bool
     # What one operation on this slot costs the customer, margin included. One credit is one rupee.
-    chat_credit_cost: int
-    image_credit_cost: int
+    #
+    # Chat is metered, so its figure is what a middling turn comes to rather than a fixed price —
+    # a long answer costs more and a one-liner costs less. Quoting it as though it were exact is
+    # what the old flat number did, and it was wrong in both directions.
+    chat_credit_cost: Decimal
+    image_credit_cost: Decimal
+
+    @field_serializer("chat_credit_cost", "image_credit_cost")
+    def _as_number(self, value: Decimal) -> float:
+        return float(value)

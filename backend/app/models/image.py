@@ -99,11 +99,10 @@ class ProviderConfig(Base, UUIDPKMixin, TimestampMixin):
     # single chat turn can cost a fraction of a paisa, and rounding those to zero would make the
     # margin report claim a cost-free product.
     provider_cost_inr: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False, default=0)
-    # Credits charged to the customer, before margin. One credit is one rupee.
-    credit_cost: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    # Added on top, per operation. This is the profit, and it is deliberately a plain number of
-    # credits rather than a percentage so an administrator can read it as rupees earned.
-    margin_credits: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    # Added on top of whatever the vendor billed. This is the profit on one operation, and it is
+    # deliberately a flat number of credits rather than a percentage so an administrator can read it
+    # as rupees earned. Fractional because a chat turn earns half a rupee.
+    margin_credits: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False, default=0)
 
     # --- metered pricing, for capabilities billed by token rather than by operation ------------
     # Rupees per million tokens, as the vendor's own price list states it. Kept per million because

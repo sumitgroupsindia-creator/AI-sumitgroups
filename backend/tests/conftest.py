@@ -45,6 +45,8 @@ if "test" not in _name.lower():
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 from app.core.db import Base, get_db_session  # noqa: E402
+from app.providers.base import ProviderError  # noqa: E402
+from app.services import chat_service  # noqa: E402
 from app.services import settings_service  # noqa: E402
 from app.core.deps import get_db  # noqa: E402
 from app.main import app  # noqa: E402
@@ -68,9 +70,13 @@ def reset_settings_cache():
 
 
 class _NoRouting:
-    """Answers the router with "0" — no task template matched."""
+    """Answers the router with "0" — no task template matched.
 
-    async def complete(self, messages, model, system=None, max_tokens=256):
+    Reports no token usage, which is the "vendor told us nothing" path: billing falls back to the
+    flat configured price. Tests that care about metering install a provider that does report.
+    """
+
+    async def complete(self, messages, model, system=None, max_tokens=256, usage=None):
         return "0"
 
 
@@ -104,6 +110,64 @@ def offline_prompt_helpers(monkeypatch):
     """
     monkeypatch.setattr(prompt_service, "get_chat_provider", lambda name: _NoRouting())
     yield
+
+
+class _FakeChatProvider:
+    """Records what it was asked, so a test can assert on the messages that reached the vendor."""
+
+    def __init__(self, name, behavior="ok", routes_to="0", tokens=None):
+        self.name = name
+        self._behavior = behavior
+        self._routes_to = routes_to
+        # (input, output) to report, or None to report nothing — which is the path that falls back
+        # to the flat configured price.
+        self._tokens = tokens
+        self.seen_messages = None
+        self.seen_model = None
+        self.seen_system = None
+        self.completions = []
+
+    def _report(self, usage):
+        if usage is not None and self._tokens is not None:
+            usage.record(*self._tokens)
+
+    async def stream_chat(self, messages, model, system=None, usage=None):
+        self.seen_messages = messages
+        self.seen_model = model
+        self.seen_system = system
+        if self._behavior == "fail":
+            raise ProviderError(self.name, "simulated outage", retryable=False)
+        if self._behavior == "crash":
+            # Something the provider's own error hierarchy does not cover — the shape of a real
+            # bug, where an SDK signature changed and `await` landed on an async generator.
+            raise TypeError("object async_generator can't be used in 'await' expression")
+        yield f"[{self.name}] "
+        yield "answer"
+        # Last, as the real vendors do: the counts are only known once the answer is complete.
+        self._report(usage)
+
+    async def complete(self, messages, model, system=None, max_tokens=256, usage=None):
+        """The router and the photo-reader both land here. Answering "0" means no task template
+        matched, which keeps a test's system prompt to the base unless it asks otherwise."""
+        self.completions.append({"messages": messages, "system": system, "max_tokens": max_tokens})
+        self._report(usage)
+        return self._routes_to
+
+
+@pytest.fixture
+def fake_chat(monkeypatch):
+    registry: dict[str, _FakeChatProvider] = {}
+
+    def _install(openai_behavior="ok", gemini_behavior="ok", routes_to="0", tokens=None):
+        registry["openai"] = _FakeChatProvider("openai", openai_behavior, routes_to, tokens)
+        registry["gemini"] = _FakeChatProvider("gemini", gemini_behavior, routes_to, tokens)
+        # Patched in both modules: the streamed answer comes through chat_service, while the router
+        # and the photo-reader reach for a provider from prompt_service.
+        monkeypatch.setattr(chat_service, "get_chat_provider", lambda name: registry[name])
+        monkeypatch.setattr(prompt_service, "get_chat_provider", lambda name: registry[name])
+        return registry
+
+    return _install
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -158,17 +222,28 @@ async def seeded_db(db_session: AsyncSession) -> AsyncSession:
                 # Mirrors the 0005 migration's seed, so a test asserting on a price is asserting
                 # on the same numbers a fresh deployment starts with: chat 1 credit, images
                 # 5 + 3 margin = 8.
+                # Chat carries the 0007 token rates as well as the flat fallback price, so a test
+                # asserting on a metered charge is asserting on the numbers a fresh deployment
+                # starts with.
+                # Mirrors the 0007/0008 seed: chat metered at the vendor's token rates with a
+                # flat 0.5 margin, images at the vendor's per-picture bill plus 3.
                 ProviderConfig(provider="openai", capability="chat", model="gpt-4o-mini",
-                               provider_cost_inr=Decimal("0.1000"), credit_cost=1, margin_credits=0,
+                               provider_cost_inr=Decimal("0.1000"), margin_credits=Decimal("0.5"),
+                               input_cost_per_mtok_inr=Decimal("13.2000"),
+                               output_cost_per_mtok_inr=Decimal("52.8000"),
+                               markup_multiplier=Decimal("1.000"),
                                display_name="OpenAI"),
                 ProviderConfig(provider="gemini", capability="chat", model="gemini-2.0-flash",
-                               provider_cost_inr=Decimal("0.0500"), credit_cost=1, margin_credits=0,
+                               provider_cost_inr=Decimal("0.0500"), margin_credits=Decimal("0.5"),
+                               input_cost_per_mtok_inr=Decimal("8.8000"),
+                               output_cost_per_mtok_inr=Decimal("35.2000"),
+                               markup_multiplier=Decimal("1.000"),
                                display_name="Gemini"),
                 ProviderConfig(provider="openai", capability="image", model="gpt-image-1",
-                               provider_cost_inr=Decimal("3.7000"), credit_cost=5, margin_credits=3,
+                               provider_cost_inr=Decimal("3.7000"), margin_credits=Decimal("3"),
                                display_name="OpenAI"),
                 ProviderConfig(provider="gemini", capability="image", model="gemini-2.5-flash-image",
-                               provider_cost_inr=Decimal("3.5000"), credit_cost=5, margin_credits=3,
+                               provider_cost_inr=Decimal("3.5000"), margin_credits=Decimal("3"),
                                display_name="Gemini"),
             ]
         )

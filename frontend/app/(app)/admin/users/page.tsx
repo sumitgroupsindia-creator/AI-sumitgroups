@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronRight, Loader2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
@@ -44,8 +45,15 @@ export default function AdminUsersPage() {
           {users.map((user) => (
             <tr key={user.id} className="border-t">
               <td className="px-4 py-3">
-                <p className="font-medium">{user.full_name || '—'}</p>
-                <p className="text-xs text-muted-foreground">{user.email}</p>
+                {/* The row is the way in to everything about this account — plan, wallet, and what
+                    their usage actually cost us. */}
+                <Link href={`/admin/users/${user.id}`} className="group inline-block">
+                  <p className="font-medium transition-colors group-hover:text-primary">
+                    {user.full_name || '—'}
+                    <ChevronRight className="ml-0.5 inline h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+                  </p>
+                  <p className="text-xs text-muted-foreground">{user.email}</p>
+                </Link>
               </td>
               <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{formatDate(user.created_at)}</td>
               <td className="px-4 py-3">

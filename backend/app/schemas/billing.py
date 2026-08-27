@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 
 
 class PlanResponse(BaseModel):
@@ -46,19 +46,40 @@ class CheckoutResponse(BaseModel):
 
 
 class CreditsResponse(BaseModel):
-    """One wallet, in credits. One credit is one rupee."""
+    """One wallet, in credits. One credit is one rupee.
 
-    balance: int
+    Sent as a JSON number, not the string Pydantic gives a Decimal by default. Clients do
+    arithmetic and comparisons on this — a quiet switch to "9.9800" turns every one of those into
+    string handling, and the balance would start sorting and comparing lexically.
+    """
+
+    balance: Decimal
+
+    @field_serializer("balance")
+    def _as_number(self, value: Decimal) -> float:
+        return float(value)
 
 
 class UsageRecordResponse(BaseModel):
-    """`model` is omitted deliberately — users see neutral model slots, not vendor model ids."""
+    """One line of the customer's own usage.
+
+    `model` is omitted deliberately — users see neutral model slots, not vendor model ids — and so
+    is `cost_inr`, which is our supplier bill and would hand every customer the exact margin. The
+    token counts are the customer's own consumption, and they are the only thing that explains why
+    one message cost more than another, so they stay.
+    """
 
     id: UUID
     provider: str
     operation: str
-    credits_consumed: int
+    credits_consumed: Decimal
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     status: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("credits_consumed")
+    def _as_number(self, value: Decimal) -> float:
+        return float(value)

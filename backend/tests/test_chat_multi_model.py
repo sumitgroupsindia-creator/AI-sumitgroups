@@ -6,8 +6,8 @@ attached image actually reaches the provider.
 """
 import io
 import uuid
+from decimal import Decimal
 
-import pytest
 from PIL import Image
 from sqlalchemy import select
 
@@ -15,8 +15,7 @@ from app.models.billing import Credit
 from app.models.chat import Conversation, Message
 from app.models.image import GenerationRequest, ProviderConfig, UploadedFile
 from app.models.user import User
-from app.providers.base import ProviderError
-from app.services import chat_service, prompt_service
+from app.services import chat_service
 from app.services.storage.local_storage import get_storage_provider
 
 
@@ -34,50 +33,6 @@ async def _top_up(db, uid, amount=100):
     credit = (await db.execute(select(Credit).where(Credit.user_id == uid))).scalar_one()
     credit.balance = amount
     await db.commit()
-
-
-class _FakeChatProvider:
-    """Records what it was asked, so a test can assert on the messages that reached the vendor."""
-
-    def __init__(self, name, behavior="ok", routes_to="0"):
-        self.name = name
-        self._behavior = behavior
-        self._routes_to = routes_to
-        self.seen_messages = None
-        self.seen_model = None
-        self.seen_system = None
-        self.completions = []
-
-    async def stream_chat(self, messages, model, system=None):
-        self.seen_messages = messages
-        self.seen_model = model
-        self.seen_system = system
-        if self._behavior == "fail":
-            raise ProviderError(self.name, "simulated outage", retryable=False)
-        yield f"[{self.name}] "
-        yield "answer"
-
-    async def complete(self, messages, model, system=None, max_tokens=256):
-        """The router and the photo-reader both land here. Answering "0" means no task template
-        matched, which keeps a test's system prompt to the base unless it asks otherwise."""
-        self.completions.append({"messages": messages, "system": system, "max_tokens": max_tokens})
-        return self._routes_to
-
-
-@pytest.fixture
-def fake_chat(monkeypatch):
-    registry: dict[str, _FakeChatProvider] = {}
-
-    def _install(openai_behavior="ok", gemini_behavior="ok", routes_to="0"):
-        registry["openai"] = _FakeChatProvider("openai", openai_behavior, routes_to)
-        registry["gemini"] = _FakeChatProvider("gemini", gemini_behavior, routes_to)
-        # Patched in both modules: the streamed answer comes through chat_service, while the router
-        # and the photo-reader reach for a provider from prompt_service.
-        monkeypatch.setattr(chat_service, "get_chat_provider", lambda name: registry[name])
-        monkeypatch.setattr(prompt_service, "get_chat_provider", lambda name: registry[name])
-        return registry
-
-    return _install
 
 
 def _events(body: str, name: str) -> list[str]:
@@ -184,7 +139,9 @@ async def test_neither_model_is_replayed_the_other_s_words(client, seeded_db, us
 async def test_two_models_cost_two_slots_and_a_failure_refunds_only_its_own(
     client, seeded_db, user_factory, fake_chat
 ):
-    fake_chat(gemini_behavior="fail")
+    """Both slots hold a reservation; the one that answered is settled to its real token cost and
+    the one that failed gets its whole hold back."""
+    fake_chat(gemini_behavior="fail", tokens=(1000, 1000))
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
     await _top_up(seeded_db, uid, amount=10)
@@ -200,8 +157,10 @@ async def test_two_models_cost_two_slots_and_a_failure_refunds_only_its_own(
     await seeded_db.commit()  # see what the streaming sessions committed
     credit = (await seeded_db.execute(select(Credit).where(Credit.user_id == uid))).scalar_one()
     await seeded_db.refresh(credit)
-    # Two reserved, the failed one refunded: exactly one slot paid for.
-    assert credit.balance == 9
+    # openai at the seeded rates: 1000 in x ₹13.20 + 1000 out x ₹52.80 per million = ₹0.0660,
+    # plus the flat 0.5-credit margin. Nothing else sticks — gemini produced nothing, so it
+    # charged nothing at all, margin included.
+    assert credit.balance == Decimal("9.4340")
 
 
 async def test_unaffordable_pair_is_refused_before_either_model_runs(
@@ -210,7 +169,9 @@ async def test_unaffordable_pair_is_refused_before_either_model_runs(
     providers = fake_chat()
     user = await user_factory()
     uid = await _user_id(seeded_db, user["email"])
-    await _top_up(seeded_db, uid, amount=1)  # enough for one slot, not two
+    # Enough for one slot's reservation, not two. Metered turns are cheap, so this has to be a
+    # fraction of a credit — a whole rupee now buys many messages.
+    await _top_up(seeded_db, uid, amount=Decimal("0.6000"))
 
     resp = await client.post(
         "/api/v1/chat/stream",

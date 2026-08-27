@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.models.prompt import PromptTemplate
-from app.providers.base import ChatImage, ChatMessage
+from app.providers.base import ChatImage, ChatMessage, TokenUsage
 from app.providers.registry import get_chat_provider
 from app.services import pricing_service, settings_service
 from app.services.credit_service import record_usage
@@ -90,14 +90,28 @@ async def _by_key(db: AsyncSession, key: str) -> PromptTemplate | None:
 
 
 async def _spend(
-    db: AsyncSession, *, user_id, request_id: str, provider: str, model: str, cost, operation: str
+    db: AsyncSession,
+    *,
+    user_id,
+    request_id: str,
+    provider: str,
+    model: str,
+    price,
+    usage: TokenUsage,
+    operation: str,
 ) -> None:
     """Record a helper call: no revenue, real cost.
 
     Charging the customer for it would break the price already quoted in the composer, so it is
     spent out of the margin — which is exactly why it has to reach the ledger. A cost the profit
     report cannot see is a cost that quietly eats the margin.
+
+    Metered where the vendor reported tokens, because these calls are the ones most likely to be
+    mispriced by a flat figure: the router answers with a single digit and costs almost nothing,
+    while reading a photo sends an image and costs a great deal more. One average across both would
+    overstate the first and understate the second.
     """
+    _, cost = price.settle(usage)
     try:
         await record_usage(
             db,
@@ -108,6 +122,8 @@ async def _spend(
             operation=operation,
             credits_consumed=0,
             cost_inr=cost,
+            input_tokens=usage.input_tokens if usage.reported else None,
+            output_tokens=usage.output_tokens if usage.reported else None,
             status="success",
         )
         await db.commit()
@@ -141,12 +157,14 @@ async def _route(
     # Routing is a chat call whichever mode it serves, so it is the chat row that names the model
     # and prices it.
     price = await pricing_service.price_for(db, provider, "chat")
+    usage = TokenUsage()
     try:
         answer = await get_chat_provider(provider).complete(
             [ChatMessage(role="user", content=question)],
             price.model,
             system=router.content,
             max_tokens=_ROUTER_MAX_TOKENS,
+            usage=usage,
         )
     except Exception as exc:  # routing is an optimisation; the turn goes on without it
         logger.warning("prompts.route_failed", provider=provider, error=str(exc))
@@ -154,7 +172,7 @@ async def _route(
 
     await _spend(
         db, user_id=user_id, request_id=request_id, provider=provider, model=price.model,
-        cost=price.cost_inr, operation="assist_route",
+        price=price, usage=usage, operation="assist_route",
     )
 
     match = re.search(r"\d+", answer or "")
@@ -184,12 +202,14 @@ async def read_attachment(
         return None
 
     price = await pricing_service.price_for(db, provider, "chat")
+    usage = TokenUsage()
     try:
         described = await get_chat_provider(provider).complete(
             [ChatMessage(role="user", content="Describe this photo.", image=image)],
             price.model,
             system=brief.content,
             max_tokens=_VISION_MAX_TOKENS,
+            usage=usage,
         )
     except Exception as exc:
         logger.warning("prompts.vision_failed", provider=provider, error=str(exc))
@@ -197,7 +217,7 @@ async def read_attachment(
 
     await _spend(
         db, user_id=user_id, request_id=request_id, provider=provider, model=price.model,
-        cost=price.cost_inr, operation="assist_vision",
+        price=price, usage=usage, operation="assist_vision",
     )
 
     described = (described or "").strip()

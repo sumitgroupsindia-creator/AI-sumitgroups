@@ -81,7 +81,10 @@ class GeminiProvider(ChatProvider, ImageProvider):
     ) -> AsyncIterator[str]:
         try:
             client = await self._client()
-            stream = await client.aio.models.generate_content_stream(
+            # Not awaited: on this SDK `generate_content_stream` *is* the async generator, so
+            # `await` on it raises TypeError before a single request leaves the process — which is
+            # exactly how Gemini chat came to fail silently.
+            stream = client.aio.models.generate_content_stream(
                 model=model, contents=_to_history(messages), config=_config(system)
             )
             async for chunk in stream:

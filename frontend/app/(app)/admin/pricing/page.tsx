@@ -106,7 +106,6 @@ export default function AdminPricingPage() {
             <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="px-4 py-3 font-medium">Slot</th>
               <th className="px-4 py-3 font-medium">Our cost</th>
-              <th className="px-4 py-3 font-medium">Base</th>
               <th className="px-4 py-3 font-medium">Margin</th>
               <th className="px-4 py-3 font-medium">Customer pays</th>
               <th className="px-4 py-3 font-medium">Profit / use</th>
@@ -138,7 +137,6 @@ export default function AdminPricingPage() {
                   <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">
                     {rupees(row.cost_inr)}
                   </td>
-                  <td className="px-4 py-3 tabular-nums">{row.base_credits}</td>
                   <td className="px-4 py-3 tabular-nums">+{row.margin_credits}</td>
                   <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums">
                     {row.charge_credits} cr

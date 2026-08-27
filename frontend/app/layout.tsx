@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
 import { AuthProvider } from '@/features/auth/auth-provider';
+import { ThemeProvider, THEME_BOOT_SCRIPT } from '@/features/theme/theme-provider';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -19,9 +20,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    // `dark` is on the server-rendered markup so the very first paint is already dark; the boot
+    // script below corrects it for anyone who chose light.
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

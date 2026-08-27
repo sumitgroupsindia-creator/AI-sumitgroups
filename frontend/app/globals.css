@@ -2,46 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Two themes over one violet palette.
+ *
+ * Dark is the default and the one the product is designed in — the surfaces are violet-tinted
+ * rather than neutral grey, so the accent reads as part of the background rather than painted on
+ * top of it. Light is a genuine second theme, not an inversion: it keeps the same hue family so a
+ * screenshot taken in either mode still looks like the same product.
+ *
+ * Every colour is a token. Nothing in the app should name a hex value — a slot can be rebranded by
+ * editing this block alone.
+ */
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 240 10% 4%;
+    --foreground: 264 30% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 4%;
-    --primary: 240 6% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 5% 96%;
-    --secondary-foreground: 240 6% 10%;
-    --muted: 240 5% 96%;
-    --muted-foreground: 240 4% 46%;
-    --accent: 240 5% 96%;
-    --accent-foreground: 240 6% 10%;
+    --card-foreground: 264 30% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 264 30% 10%;
+    --primary: 258 88% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 264 30% 96%;
+    --secondary-foreground: 264 30% 14%;
+    --muted: 264 24% 96%;
+    --muted-foreground: 264 10% 44%;
+    --accent: 264 34% 94%;
+    --accent-foreground: 264 30% 14%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 6% 90%;
-    --input: 240 6% 90%;
-    --ring: 240 5% 65%;
+    --success: 152 60% 36%;
+    --border: 264 22% 90%;
+    --input: 264 22% 90%;
+    --ring: 258 88% 58%;
     --radius: 0.75rem;
   }
 
   .dark {
-    --background: 240 10% 4%;
-    --foreground: 0 0% 98%;
-    --card: 240 6% 8%;
-    --card-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 6% 10%;
-    --secondary: 240 4% 14%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 4% 14%;
-    --muted-foreground: 240 5% 65%;
-    --accent: 240 4% 16%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 63% 45%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 4% 16%;
-    --input: 240 4% 16%;
-    --ring: 240 5% 45%;
+    --background: 264 44% 8%;
+    --foreground: 260 20% 96%;
+    --card: 264 38% 12%;
+    --card-foreground: 260 20% 96%;
+    --popover: 264 36% 14%;
+    --popover-foreground: 260 20% 96%;
+    --primary: 258 90% 66%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 264 30% 18%;
+    --secondary-foreground: 260 20% 96%;
+    --muted: 264 28% 16%;
+    --muted-foreground: 264 16% 68%;
+    --accent: 264 32% 21%;
+    --accent-foreground: 260 20% 96%;
+    --destructive: 0 66% 56%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 55% 48%;
+    --border: 264 28% 21%;
+    --input: 264 28% 21%;
+    --ring: 258 90% 66%;
   }
 
   * {
@@ -66,5 +83,22 @@
   .scrollbar-thin::-webkit-scrollbar-thumb {
     background-color: hsl(var(--border));
     border-radius: 3px;
+  }
+
+  /* The glow behind the hero. Sits under the content and never intercepts a click. */
+  .aurora {
+    position: relative;
+    isolation: isolate;
+  }
+  .aurora::before {
+    content: '';
+    position: absolute;
+    inset: -20% 0 auto 0;
+    height: 480px;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(48% 60% at 50% 0%, hsl(var(--primary) / 0.28), transparent 70%),
+      radial-gradient(30% 44% at 82% 12%, hsl(280 90% 62% / 0.16), transparent 70%);
   }
 }

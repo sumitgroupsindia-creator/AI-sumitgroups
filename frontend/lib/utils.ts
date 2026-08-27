@@ -14,6 +14,21 @@ export function formatCurrency(amount: string | number, currency: string): strin
   }).format(value);
 }
 
+/**
+ * A credit amount, as a person would read it.
+ *
+ * Two places is how rupees are written, and it is right for a balance — but a metered chat turn
+ * costs about ₹0.004, and two places renders that as "0.00", which reads as free. Anything smaller
+ * than a paisa therefore keeps four places: the number is tiny, and saying so is the whole point.
+ * Whole numbers stay whole so a balance of 50 does not become "50.00".
+ */
+export function formatCredits(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  if (Number.isInteger(value)) return String(value);
+  if (Math.abs(value) < 0.01) return value.toFixed(4);
+  return value.toFixed(2);
+}
+
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }

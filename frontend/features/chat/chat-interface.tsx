@@ -2,15 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, Loader2, Plus, RefreshCw, Send, Square, X } from 'lucide-react';
+import { AlertCircle, ImageIcon, Loader2, RefreshCw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { AttachedImage } from '@/features/composer/attached-image';
-import { ModeToggle } from '@/features/composer/mode-toggle';
-import { SlotSelector, providersFor } from '@/features/composer/slot-selector';
-import { useModelLabel, useModelLabels, useQuote } from '@/features/branding/model-branding';
+import { ACCEPTED_TYPES, ComposerChip, PromptBox } from '@/features/composer/prompt-box';
+import { providersFor } from '@/features/composer/slots';
+import { useModelLabel, useModelLabels } from '@/features/branding/model-branding';
 import { ModelResultCard } from '@/features/images/model-result-card';
 import { useCredits } from '@/hooks/use-credits';
 import { useGenerationsPolling } from '@/hooks/use-generations-polling';
@@ -53,7 +52,7 @@ type Turn =
 const NO_MESSAGES: Message[] = [];
 const NO_GENERATIONS: GenerationRequest[] = [];
 
-const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp'];
+
 
 /**
  * Rebuilds the thread from stored state.
@@ -108,7 +107,6 @@ export function ChatInterface({
 }: ChatInterfaceProps) {
   const knownProviders = Object.keys(useModelLabels()) as ProviderName[];
   const labelFor = useModelLabel();
-  const quoteFor = useQuote();
   const router = useRouter();
   const { refresh: refreshCredits } = useCredits();
 
@@ -158,14 +156,12 @@ export function ChatInterface({
     [selection, knownProviders],
   );
 
-  const quote = quoteFor(providers, mode);
-
   const turns = useMemo(() => buildTurns(messages, generations), [messages, generations]);
   const isEmpty = turns.length === 0 && !pendingUser && !live;
 
   const pickFile = (file: File | undefined) => {
     if (!file) return;
-    if (!ACCEPTED.includes(file.type)) {
+    if (!ACCEPTED_TYPES.includes(file.type)) {
       setTurnError('सिर्फ़ JPG, PNG या WEBP तस्वीर लगाई जा सकती है।');
       return;
     }
@@ -326,144 +322,110 @@ export function ChatInterface({
     setPendingUser(null);
   };
 
+  const composer = (
+    <PromptBox
+      value={input}
+      onChange={setInput}
+      onSubmit={() => send(input)}
+      onStop={stop}
+      busy={busy}
+      mode={mode}
+      onModeChange={setMode}
+      selection={selection}
+      onSelectionChange={setSelection}
+      attachment={attachment}
+      onPickFile={pickFile}
+      onClearAttachment={clearAttachment}
+    />
+  );
+
+  // Empty threads centre the composer under a heading, the way a blank page invites a first line.
+  // Once there is something to read, it moves to the bottom and the thread takes the room — the
+  // same box, moved, rather than two different composers to keep in step.
+  if (isEmpty) {
+    return (
+      <div className="aurora flex h-full flex-col overflow-y-auto scrollbar-thin">
+        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-4 py-10">
+          <div className="mb-7 text-center">
+            <h1 className="text-[28px] font-semibold tracking-tight sm:text-[34px]">
+              {HEADINGS[mode].title}
+            </h1>
+            <p className="mx-auto mt-2.5 max-w-lg text-[13.5px] leading-relaxed text-muted-foreground">
+              {HEADINGS[mode].subtitle}
+            </p>
+          </div>
+
+          {composer}
+
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <ComposerChip
+              label="तस्वीर बनाओ"
+              icon={ImageIcon}
+              active={mode === 'image'}
+              onClick={() => setMode(mode === 'image' ? 'chat' : 'image')}
+            />
+            {STARTERS[mode].map((prompt) => (
+              <ComposerChip key={prompt} label={prompt} onClick={() => send(prompt)} />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
-        {isEmpty ? (
-          <EmptyState mode={mode} onPick={send} />
-        ) : (
-          <div className="mx-auto max-w-4xl space-y-6 px-4 py-8">
-            {turns.map((turn) => (
-              <TurnBlock key={turn.key} turn={turn} labelFor={labelFor} />
-            ))}
+        <div className="mx-auto max-w-3xl space-y-6 px-4 py-8">
+          {turns.map((turn) => (
+            <TurnBlock key={turn.key} turn={turn} labelFor={labelFor} />
+          ))}
 
-            {pendingUser && (
-              <UserBubble content={pendingUser.content} previewUrl={pendingUser.previewUrl} />
-            )}
+          {pendingUser && (
+            <UserBubble content={pendingUser.content} previewUrl={pendingUser.previewUrl} />
+          )}
 
-            {live && (
-              <AnswerColumns
-                answers={Object.entries(live).map(([provider, answer]) => ({
-                  provider: provider as ProviderName,
-                  ...answer,
-                }))}
-                labelFor={labelFor}
-              />
-            )}
+          {live && (
+            <AnswerColumns
+              answers={Object.entries(live).map(([provider, answer]) => ({
+                provider: provider as ProviderName,
+                ...answer,
+              }))}
+              labelFor={labelFor}
+            />
+          )}
 
-            {busy && mode === 'image' && !live && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                तस्वीर बन रही है…
-              </div>
-            )}
-
-            {turnError && (
-              <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-                <div className="flex-1">
-                  <p className="text-sm">{turnError}</p>
-                  {lastPrompt && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="mt-2 gap-2"
-                      onClick={() => send(lastPrompt)}
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      दोबारा भेजो
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="border-t bg-background/95 backdrop-blur">
-        <div className="mx-auto max-w-4xl px-4 py-4">
-          {/* Above the box: what this turn should be, which slots answer it, and what that costs —
-              all settled before the first keystroke, so the price is on screen while the prompt is
-              still being written rather than after. */}
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <ModeToggle value={mode} onChange={setMode} size="sm" />
-            <div className="ml-auto flex items-center gap-2">
-              <SlotSelector value={selection} onChange={setSelection} disabled={busy} />
-              {quote !== null && (
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {quote} credit{quote === 1 ? '' : 's'}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {attachment && (
-            <div className="mb-2 flex items-center gap-2 rounded-lg border p-2">
-              {/* eslint-disable-next-line @next/next/no-img-element -- blob: URL */}
-              <img src={attachment.previewUrl} alt="" className="h-12 w-12 rounded object-cover" />
-              <span className="flex-1 truncate text-xs text-muted-foreground">
-                {attachment.file.name}
-              </span>
-              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={clearAttachment}>
-                <X className="h-3.5 w-3.5" />
-                <span className="sr-only">तस्वीर हटाओ</span>
-              </Button>
+          {busy && mode === 'image' && !live && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              तस्वीर बन रही है…
             </div>
           )}
 
-          <div className="relative">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={ACCEPTED.join(',')}
-              className="hidden"
-              onChange={(e) => pickFile(e.target.files?.[0])}
-            />
-            {/* At the start of the box, where the turn itself starts. Attaching works in either
-                mode — a photo is context for words as readily as it is input for a picture. */}
-            <Button
-              size="icon"
-              variant="ghost"
-              className="absolute bottom-1.5 left-1.5 h-8 w-8 rounded-full"
-              disabled={busy}
-              onClick={() => fileInputRef.current?.click()}
-              title="तस्वीर लगाओ"
-            >
-              <Plus className="h-4 w-4" />
-              <span className="sr-only">तस्वीर लगाओ</span>
-            </Button>
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  send(input);
-                }
-              }}
-              placeholder={
-                mode === 'image'
-                  ? 'कैसी तस्वीर चाहिए, लिखो…'
-                  : 'क्या लिखवाना है? तस्वीर भी लगा सकते हो…'
-              }
-              rows={1}
-              className="max-h-48 resize-none pl-12 pr-14"
-              disabled={busy}
-            />
-            <div className="absolute bottom-1.5 right-2">
-              {busy ? (
-                <Button size="icon" variant="secondary" onClick={stop} title="रोको">
-                  <Square className="h-3.5 w-3.5" />
-                </Button>
-              ) : (
-                <Button size="icon" onClick={() => send(input)} disabled={!input.trim()} title="भेजो">
-                  <Send className="h-4 w-4" />
-                </Button>
-              )}
+          {turnError && (
+            <div className="flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+              <div className="flex-1">
+                <p className="text-sm">{turnError}</p>
+                {lastPrompt && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 gap-2"
+                    onClick={() => send(lastPrompt)}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    दोबारा भेजो
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
+      </div>
+
+      <div className="shrink-0 border-t border-border/60 bg-background/80 px-4 py-3 backdrop-blur-xl">
+        {composer}
       </div>
     </div>
   );
@@ -568,27 +530,6 @@ function TypingIndicator() {
           style={{ animationDelay: `${delay}ms` }}
         />
       ))}
-    </div>
-  );
-}
-
-function EmptyState({ mode, onPick }: { mode: ComposerMode; onPick: (prompt: string) => void }) {
-  const heading = HEADINGS[mode];
-  return (
-    <div className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center px-4 text-center">
-      <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{heading.title}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">{heading.subtitle}</p>
-      <div className="mt-8 grid w-full gap-2 sm:grid-cols-2">
-        {STARTERS[mode].map((prompt) => (
-          <button
-            key={prompt}
-            onClick={() => onPick(prompt)}
-            className="rounded-lg border p-3 text-left text-sm transition-colors hover:bg-accent"
-          >
-            {prompt}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
