@@ -234,6 +234,7 @@ class AdminProviderBrandResponse(BaseModel):
     slot: str
     tier: str
     description: str
+    requires_paid_plan: bool
     sort_order: int
 
     model_config = {"from_attributes": True}
@@ -244,6 +245,8 @@ class AdminUpdateProviderBrandRequest(BaseModel):
     tier: str | None = Field(default=None, min_length=1, max_length=50)
     description: str | None = Field(default=None, max_length=255)
     sort_order: int | None = None
+    # Free accounts cannot select a slot with this set.
+    requires_paid_plan: bool | None = None
 
 
 class AdminSettingResponse(BaseModel):

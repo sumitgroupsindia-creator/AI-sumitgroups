@@ -17,6 +17,9 @@ class PublicModelSlot(BaseModel):
     description: str
     chat_enabled: bool
     image_enabled: bool
+    # Free accounts cannot select this slot. Published so the composer can show it locked with a
+    # route to the pricing page, rather than letting someone pick it and meet a 402.
+    requires_paid_plan: bool = False
     # What one operation on this slot costs the customer, margin included. One credit is one rupee.
     #
     # Chat is metered, so its figure is what a middling turn comes to rather than a fixed price —

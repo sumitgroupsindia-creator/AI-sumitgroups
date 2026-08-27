@@ -20,7 +20,7 @@ from app.schemas.chat import (
     MessageResponse,
     RenameConversationRequest,
 )
-from app.services import chat_service
+from app.services import entitlement_service, chat_service
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 conversations_router = APIRouter(prefix="/conversations", tags=["chat"])
@@ -36,6 +36,16 @@ async def chat_stream(
 ):
     request_id = new_request_id()
     primary = payload.providers[0]
+
+    # Before anything is reserved or streamed: a slot the plan does not include is refused outright
+    # rather than half-answered.
+    try:
+        await entitlement_service.check_allowed(db, user.id, payload.providers)
+    except entitlement_service.PlanNotEntitledError:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="This model needs a paid plan. Upgrade to use it.",
+        )
 
     try:
         model = await chat_service.resolve_chat_model(db, primary)

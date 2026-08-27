@@ -17,7 +17,7 @@ from app.schemas.image import (
     RegenerateRequest,
     UploadedFileResponse,
 )
-from app.services import image_service, pricing_service, upload_service
+from app.services import entitlement_service, image_service, pricing_service, upload_service
 from app.services.credit_service import InsufficientCreditsError, reserve_credits
 from app.utils.file_validation import FileValidationError
 from app.utils.idempotency import get_cached_response, store_response
@@ -61,6 +61,18 @@ def _validate_providers(providers: list[str]) -> list[str]:
     return cleaned
 
 
+async def _require_entitlement(db: AsyncSession, user_id, providers: list[str]) -> None:
+    """402, not 403: the customer is not forbidden, they simply have not paid for this slot — and
+    402 is what the client already treats as "show them the upgrade path"."""
+    try:
+        await entitlement_service.check_allowed(db, user_id, providers)
+    except entitlement_service.PlanNotEntitledError:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="This model needs a paid plan. Upgrade to use it.",
+        )
+
+
 @router.post("/generate", response_model=GenerationRequestResponse, status_code=status.HTTP_202_ACCEPTED)
 async def generate_images(
     payload: GenerateImageRequest,
@@ -74,6 +86,7 @@ async def generate_images(
             return cached[1]
 
     providers = _validate_providers(payload.providers)
+    await _require_entitlement(db, user.id, providers)
     request_ref = new_request_id()
 
     try:
@@ -115,6 +128,7 @@ async def generate_with_upload(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     provider_list = _validate_providers([p.strip() for p in providers.split(",") if p.strip()])
+    await _require_entitlement(db, user.id, provider_list)
     request_ref = new_request_id()
 
     try:
@@ -185,6 +199,7 @@ async def regenerate(
     await db.refresh(gen_request, attribute_names=["results"])
     providers = [payload.provider] if payload.provider else [r.provider for r in gen_request.results]
     providers = _validate_providers(providers)
+    await _require_entitlement(db, user.id, providers)
 
     # A regeneration is a fresh generation: it bills the provider again, so it has to bill the
     # customer again too. Without this the retry was free, and — worse — a failed retry ran the

@@ -27,7 +27,15 @@ export function ModelBrandingProvider({ children }: { children: ReactNode }) {
         if (cancelled || slots.length === 0) return;
         setLabels(
           Object.fromEntries(
-            slots.map((s) => [s.provider, { slot: s.slot, tier: s.tier, description: s.description }]),
+            slots.map((s) => [
+              s.provider,
+              {
+                slot: s.slot,
+                tier: s.tier,
+                description: s.description,
+                requiresPaidPlan: s.requires_paid_plan,
+              },
+            ]),
           ),
         );
       })

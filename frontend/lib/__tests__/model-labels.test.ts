@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { MODEL_LABELS, modelDisplayName, modelLabel } from '@/lib/model-labels';
+import { MODEL_LABELS, modelDisplayName, modelLabel, modelName } from '@/lib/model-labels';
 
 const VENDOR_PATTERN = /openai|gemini|gpt|google|anthropic|claude/i;
 
@@ -26,8 +26,18 @@ describe('model labels', () => {
     expect(label.slot).not.toContain('some-future-provider');
   });
 
-  it('composes a display name from slot and tier', () => {
-    expect(modelDisplayName('openai')).toBe('Model 1 · Standard');
-    expect(modelDisplayName('gemini')).toBe('Model 2 · Premium');
+  it('names a model by its tier, so a customer holds one name and not two', () => {
+    expect(modelDisplayName('openai')).toBe('Standard');
+    expect(modelDisplayName('gemini')).toBe('Premium');
+  });
+
+  it('falls back to the slot when an administrator has cleared the tier', () => {
+    expect(modelName({ slot: 'Model 9', tier: '  ', description: '' })).toBe('Model 9');
+  });
+
+  it('never repeats itself when slot and tier were set to the same word', () => {
+    // Both fields are admin-editable and nothing keeps them apart; "Standard · Standard" is the
+    // stutter this rule exists to prevent.
+    expect(modelName({ slot: 'Standard', tier: 'Standard', description: '' })).toBe('Standard');
   });
 });

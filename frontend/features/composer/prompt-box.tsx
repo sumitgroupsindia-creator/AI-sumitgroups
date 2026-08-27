@@ -1,7 +1,8 @@
 'use client';
 
 import { useRef, type KeyboardEvent } from 'react';
-import { ChevronDown, ImageIcon, Loader2, Paperclip, Plus, Send, Square, X } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronDown, ImageIcon, Loader2, Lock, Paperclip, Plus, Send, Square, X } from 'lucide-react';
 
 import {
   DropdownMenu,
@@ -13,6 +14,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useModelLabel, useModelLabels } from '@/features/branding/model-branding';
+import { modelName } from '@/lib/model-labels';
+import { useIsPaid } from '@/hooks/use-entitlement';
 import { cn } from '@/lib/utils';
 import type { ComposerMode, ModelSelection, ProviderName } from '@/types/api';
 
@@ -61,10 +64,17 @@ export function PromptBox({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const labels = useModelLabels();
   const labelFor = useModelLabel();
+  const { isPaid } = useIsPaid();
   const providers = Object.keys(labels) as ProviderName[];
 
+  // A slot is locked when it needs a paid plan and this account has not got one. "Both" is locked
+  // whenever any slot in it is — the same rule as the server's, stated once.
+  const isLocked = (provider: ProviderName) =>
+    Boolean(labelFor(provider).requiresPaidPlan) && !isPaid;
+  const bothLocked = providers.some(isLocked);
+
   const selectionLabel =
-    selection === 'both' ? 'दोनों' : labelFor(selection).tier;
+    selection === 'both' ? 'दोनों' : modelName(labelFor(selection));
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -181,36 +191,23 @@ export function PromptBox({
             <DropdownMenuContent align="end" className="w-[15rem]">
               <DropdownMenuLabel>मॉडल चुनो</DropdownMenuLabel>
               {providers.map((provider) => (
-                <DropdownMenuCheckboxItem
+                <SlotOption
                   key={provider}
                   checked={selection === provider}
-                  onCheckedChange={() => onSelectionChange(provider)}
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium">
-                      {labelFor(provider).slot}
-                      <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
-                        {labelFor(provider).tier}
-                      </span>
-                    </p>
-                    <p className="text-[11px] leading-snug text-muted-foreground">
-                      {labelFor(provider).description}
-                    </p>
-                  </div>
-                </DropdownMenuCheckboxItem>
+                  locked={isLocked(provider)}
+                  title={modelName(labelFor(provider))}
+                  body={labelFor(provider).description}
+                  onPick={() => onSelectionChange(provider)}
+                />
               ))}
               <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem
+              <SlotOption
                 checked={selection === 'both'}
-                onCheckedChange={() => onSelectionChange('both')}
-              >
-                <div className="min-w-0">
-                  <p className="font-medium">दोनों</p>
-                  <p className="text-[11px] leading-snug text-muted-foreground">
-                    दोनों से एक साथ पूछो और जवाब साथ-साथ देखो
-                  </p>
-                </div>
-              </DropdownMenuCheckboxItem>
+                locked={bothLocked}
+                title="दोनों"
+                body="दोनों से एक साथ पूछो और जवाब साथ-साथ देखो"
+                onPick={() => onSelectionChange('both')}
+              />
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -240,6 +237,53 @@ export function PromptBox({
       </div>
 
     </div>
+  );
+}
+
+/**
+ * One choice in the model menu, locked or not.
+ *
+ * A locked slot is shown rather than hidden: someone on the free plan should be able to see what
+ * they are not getting and how to get it. It is not selectable, so nobody types a prompt against a
+ * slot the server will refuse.
+ */
+function SlotOption({
+  checked,
+  locked,
+  title,
+  body,
+  onPick,
+}: {
+  checked: boolean;
+  locked: boolean;
+  title: string;
+  body: string;
+  onPick: () => void;
+}) {
+  if (locked) {
+    return (
+      <Link
+        href="/pricing"
+        className="flex cursor-pointer select-none items-start gap-3 rounded-lg px-2.5 py-2 text-sm transition-colors hover:bg-accent"
+      >
+        <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0">
+          <p className="font-medium text-muted-foreground">{title}</p>
+          <p className="text-[11px] leading-snug text-primary">
+            पेड प्लान चाहिए — अपग्रेड करो
+          </p>
+        </div>
+      </Link>
+    );
+  }
+
+  return (
+    <DropdownMenuCheckboxItem checked={checked} onCheckedChange={onPick}>
+      <div className="min-w-0">
+        <p className="font-medium">{title}</p>
+        <p className="text-[11px] leading-snug text-muted-foreground">{body}</p>
+      </div>
+    </DropdownMenuCheckboxItem>
   );
 }
 

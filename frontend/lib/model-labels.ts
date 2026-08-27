@@ -17,6 +17,8 @@ export interface ModelLabel {
   slot: string;
   tier: string;
   description: string;
+  /** Free accounts cannot select this slot. Defaults false until /config/models lands. */
+  requiresPaidPlan?: boolean;
 }
 
 export const MODEL_LABELS: Record<ProviderName, ModelLabel> = {
@@ -42,8 +44,20 @@ export function modelLabel(provider: string): ModelLabel {
   );
 }
 
-/** "Model 1 · Standard" — used where a single string is needed. */
+/** The customer-facing name for a provider, by key. */
 export function modelDisplayName(provider: string): string {
-  const label = modelLabel(provider);
-  return `${label.slot} · ${label.tier}`;
+  return modelName(modelLabel(provider));
+}
+
+
+/**
+ * The one name a customer sees for a model.
+ *
+ * The tier, not the slot. Both are admin-editable and there is no rule keeping them different —
+ * set to the same word they read as a stutter ("Standard · Standard"), and shown together they ask
+ * the customer to hold two names for one thing. One name is enough, and the tier is the one that
+ * says something useful about the model. `slot` remains in the data for the admin screens.
+ */
+export function modelName(label: ModelLabel): string {
+  return label.tier.trim() || label.slot.trim() || 'Model';
 }

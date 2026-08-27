@@ -10,6 +10,7 @@ import { AttachedImage } from '@/features/composer/attached-image';
 import { ACCEPTED_TYPES, ComposerChip, PromptBox } from '@/features/composer/prompt-box';
 import { providersFor } from '@/features/composer/slots';
 import { useModelLabel, useModelLabels } from '@/features/branding/model-branding';
+import { modelName } from '@/lib/model-labels';
 import { ModelResultCard } from '@/features/images/model-result-card';
 import { useCredits } from '@/hooks/use-credits';
 import { useGenerationsPolling } from '@/hooks/use-generations-polling';
@@ -498,7 +499,7 @@ function AnswerColumns({
         <div key={answer.provider} className={cn(answers.length > 1 && 'rounded-lg border p-4')}>
           {answers.length > 1 && (
             <p className="mb-2 text-xs font-medium text-muted-foreground">
-              {labelFor(answer.provider).slot} · {labelFor(answer.provider).tier}
+              {modelName(labelFor(answer.provider))}
             </p>
           )}
           {answer.content ? (

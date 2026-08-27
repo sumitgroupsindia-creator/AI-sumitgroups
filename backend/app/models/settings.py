@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -53,4 +53,8 @@ class ProviderBrand(Base, UUIDPKMixin, TimestampMixin):
     slot: Mapped[str] = mapped_column(String(50), nullable=False)  # "Model 1"
     tier: Mapped[str] = mapped_column(String(50), nullable=False)  # "Standard"
     description: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    # Free accounts cannot select this slot, and therefore cannot ask both slots at once. Kept on
+    # the brand so an administrator can move which slot is premium without a deploy, and so the
+    # billing path never has to name a vendor.
+    requires_paid_plan: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

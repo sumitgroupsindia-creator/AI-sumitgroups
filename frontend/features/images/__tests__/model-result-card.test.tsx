@@ -29,11 +29,11 @@ function makeResult(overrides: Partial<GenerationResult> = {}): GenerationResult
 describe('ModelResultCard', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('labels the card by slot and tier, never by vendor', () => {
+  it('labels the card by its product name, never by vendor', () => {
     render(<ModelResultCard result={makeResult()} onRegenerate={vi.fn()} regenerating={false} />);
 
-    expect(screen.getByText('Model 1')).toBeInTheDocument();
     expect(screen.getByText('Standard')).toBeInTheDocument();
+    // The contract that matters: the vendor behind a slot never reaches the customer.
     expect(screen.queryByText(/openai/i)).not.toBeInTheDocument();
   });
 
@@ -73,8 +73,8 @@ describe('ModelResultCard', () => {
         regenerating={false}
       />,
     );
-    expect(screen.getByText('Model 2')).toBeInTheDocument();
     expect(screen.getByText('Premium')).toBeInTheDocument();
+    expect(screen.queryByText(/gemini/i)).not.toBeInTheDocument();
     expect(screen.getByText('Done')).toBeInTheDocument();
   });
 

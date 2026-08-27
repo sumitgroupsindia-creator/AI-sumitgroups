@@ -38,6 +38,7 @@ async def public_model_slots(db: AsyncSession = Depends(get_db)):
                 description=brand.description,
                 chat_enabled=bool(chat and chat.is_enabled),
                 image_enabled=bool(image and image.is_enabled),
+                requires_paid_plan=brand.requires_paid_plan,
                 # `typical_credits`, not `credits`: a flat-priced slot quotes exactly what it
                 # charges, while a metered one quotes a representative turn, since the real figure
                 # depends on an answer nobody has written yet.

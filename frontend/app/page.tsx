@@ -394,7 +394,7 @@ function ComparisonDemo() {
           ].map((model) => (
             <div key={model.slot} className="overflow-hidden rounded-lg border">
               <div className="flex items-center justify-between border-b px-3 py-2">
-                <span className="text-sm font-medium">{model.slot}</span>
+                <span className="text-sm font-medium">{model.tier}</span>
                 <span className="rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
                   {model.tier}
                 </span>

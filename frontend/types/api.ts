@@ -307,6 +307,8 @@ export interface PublicModelSlot {
   description: string;
   chat_enabled: boolean;
   image_enabled: boolean;
+  /** Free accounts cannot select this slot; the composer shows it locked. */
+  requires_paid_plan: boolean;
   chat_credit_cost: number;
   image_credit_cost: number;
 }

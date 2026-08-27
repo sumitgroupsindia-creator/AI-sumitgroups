@@ -79,7 +79,9 @@ async def test_plans_are_database_driven_and_public(client):
 
 
 async def test_new_user_starts_on_free_plan(client, user_factory):
-    user = await user_factory()
+    """What registration alone produces, with nothing added on top — so this is the one place that
+    must opt out of the factory's default paid plan."""
+    user = await user_factory(plan="free")
     resp = await client.get("/api/v1/subscription", headers=user["headers"])
     assert resp.status_code == 200
     assert resp.json()["status"] == "active"

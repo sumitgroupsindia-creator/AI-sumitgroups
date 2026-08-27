@@ -1,15 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, ImageIcon, Loader2, Paperclip, Sparkles, X } from 'lucide-react';
+import Link from 'next/link';
+import { AlertCircle, ImageIcon, Loader2, Lock, Paperclip, Sparkles, X } from 'lucide-react';
 
 import { ACCEPTED_TYPES } from '@/features/composer/prompt-box';
+import { modelName } from '@/lib/model-labels';
+import { useIsPaid } from '@/hooks/use-entitlement';
 import { useModelLabel, useModelLabels } from '@/features/branding/model-branding';
 import { ModelResultCard } from '@/features/images/model-result-card';
 import { providersFor } from '@/features/composer/slots';
 import { useCredits } from '@/hooks/use-credits';
 import { useGenerationsPolling } from '@/hooks/use-generations-polling';
 import { cn } from '@/lib/utils';
+import * as chatService from '@/services/chat.service';
 import * as imageService from '@/services/image.service';
 import type { GenerationRequest, ModelSelection, ProviderName } from '@/types/api';
 
@@ -42,12 +46,15 @@ export default function ImagesPage() {
   const labels = useModelLabels();
   const labelFor = useModelLabel();
   const { refresh: refreshCredits } = useCredits();
+  const { isPaid } = useIsPaid();
   // Memoised on the labels themselves: `Object.keys` builds a new array each render, and the
   // memo below takes it as a dependency.
   const knownProviders = useMemo(() => Object.keys(labels) as ProviderName[], [labels]);
 
   const [prompt, setPrompt] = useState('');
-  const [selection, setSelection] = useState<ModelSelection>('both');
+  // Starts on the first slot, not on "both": "both" includes the premium slot, and a free account
+  // opening this page would find its default already locked.
+  const [selection, setSelection] = useState<ModelSelection>('openai');
   const [shape, setShape] = useState('portrait');
   const [attachment, setAttachment] = useState<{ file: File; previewUrl: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -60,6 +67,9 @@ export default function ImagesPage() {
     () => providersFor(selection, knownProviders),
     [selection, knownProviders],
   );
+
+  const isLocked = (provider: ProviderName) =>
+    Boolean(labelFor(provider).requiresPaidPlan) && !isPaid;
 
   useEffect(() => {
     void imageService
@@ -96,9 +106,22 @@ export default function ImagesPage() {
         // The shape rides along in the prompt: the image APIs take one instruction and no
         // settings object, so this is the only channel there is for it.
         const shaped = `${trimmed}\n\n[${SHAPES.find((s) => s.value === shape)?.hint ?? shape}]`;
+
+        // Every generation gets a thread, so one history holds everything a customer has made
+        // rather than splitting it between this desk and the chat sidebar. The thread is titled
+        // with what was asked for, which is what makes the sidebar readable afterwards.
+        const conversation = await chatService.createConversation(
+          trimmed.slice(0, 60),
+          providers[0]!,
+        );
         const created = attachment
-          ? await imageService.generateWithUpload(attachment.file, shaped, providers)
-          : await imageService.generateImages(shaped, providers);
+          ? await imageService.generateWithUpload(
+              attachment.file,
+              shaped,
+              providers,
+              conversation.id,
+            )
+          : await imageService.generateImages(shaped, providers, undefined, conversation.id);
         add(created);
         setPrompt('');
         setAttachment(null);
@@ -201,11 +224,36 @@ export default function ImagesPage() {
             <div className="grid gap-1.5">
               {[...knownProviders, 'both' as const].map((option) => {
                 const active = selection === option;
-                const label = option === 'both' ? 'दोनों' : labelFor(option).slot;
+                const locked =
+                  option === 'both'
+                    ? knownProviders.some(isLocked)
+                    : isLocked(option as ProviderName);
+                const label = option === 'both' ? 'दोनों' : modelName(labelFor(option));
                 const hint =
                   option === 'both'
                     ? 'दोनों से एक साथ — दो तस्वीरें, दुगुने क्रेडिट'
-                    : `${labelFor(option).tier} · ${labelFor(option).description}`;
+                    : labelFor(option).description;
+
+                // Shown, not hidden: a free account should see what it is missing and how to get
+                // it. Not selectable, so nobody writes a prompt against a slot the server refuses.
+                if (locked) {
+                  return (
+                    <Link
+                      key={option}
+                      href="/pricing"
+                      className="rounded-xl border border-border/70 px-3 py-2 text-left transition-colors hover:bg-accent/60"
+                    >
+                      <p className="flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground">
+                        <Lock className="h-3 w-3" />
+                        {label}
+                      </p>
+                      <p className="mt-0.5 text-[11px] leading-snug text-primary">
+                        पेड प्लान चाहिए — अपग्रेड करो
+                      </p>
+                    </Link>
+                  );
+                }
+
                 return (
                   <button
                     key={option}

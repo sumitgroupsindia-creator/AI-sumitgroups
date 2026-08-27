@@ -252,8 +252,10 @@ async def seeded_db(db_session: AsyncSession) -> AsyncSession:
             [
                 ProviderBrand(provider="openai", slot="Model 1", tier="Standard",
                               description="Balanced quality and speed.", sort_order=1),
+                # The premium slot, gated behind a paid plan — mirrors the 0009 seed.
                 ProviderBrand(provider="gemini", slot="Model 2", tier="Premium",
-                              description="Alternative interpretation.", sort_order=2),
+                              description="Alternative interpretation.",
+                              requires_paid_plan=True, sort_order=2),
             ]
         )
         # Mirrors the 0006 seed. The wording is trimmed — what the tests care about is which rows
@@ -321,14 +323,43 @@ async def client(engine, seeded_db) -> AsyncIterator[AsyncClient]:
 
 
 @pytest_asyncio.fixture
-async def user_factory(client: AsyncClient):
-    async def _create(email: str | None = None, password: str = "password123") -> dict:
+async def user_factory(client: AsyncClient, seeded_db: AsyncSession):
+    """A registered account, on a paid plan unless a test says otherwise.
+
+    Paid by default because almost every test here is about something else — billing arithmetic,
+    concurrency, refunds — and wants an account that can actually reach both model slots. Tests
+    that are about the plan gate itself pass `plan="free"` and say so in their own words.
+    """
+
+    async def _create(
+        email: str | None = None, password: str = "password123", plan: str = "pro"
+    ) -> dict:
+        from sqlalchemy import select as _select
+
+        from app.models.billing import Plan as _Plan, Subscription as _Subscription
+        from app.models.user import User as _User
+
         email = email or f"user_{uuid.uuid4().hex[:8]}@example.com"
         resp = await client.post(
             "/api/v1/auth/register", json={"email": email, "password": password, "full_name": "Test"}
         )
         assert resp.status_code == 201, resp.text
         tokens = resp.json()
+
+        if plan != "free":
+            user_row = (
+                await seeded_db.execute(_select(_User).where(_User.email == email))
+            ).scalar_one()
+            plan_row = (
+                await seeded_db.execute(_select(_Plan).where(_Plan.code == plan))
+            ).scalar_one()
+            seeded_db.add(
+                _Subscription(
+                    user_id=user_row.id, plan_id=plan_row.id, status="active", provider="razorpay"
+                )
+            )
+            await seeded_db.commit()
+
         return {
             "email": email,
             "password": password,
