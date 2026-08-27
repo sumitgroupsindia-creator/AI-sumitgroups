@@ -104,4 +104,23 @@ class ProviderConfig(Base, UUIDPKMixin, TimestampMixin):
     # Added on top, per operation. This is the profit, and it is deliberately a plain number of
     # credits rather than a percentage so an administrator can read it as rupees earned.
     margin_credits: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+
+    # --- metered pricing, for capabilities billed by token rather than by operation ------------
+    # Rupees per million tokens, as the vendor's own price list states it. Kept per million because
+    # that is the unit every price list is published in, so an administrator can copy the figure
+    # across and convert once, instead of typing a number with eight leading zeros.
+    #
+    # A chat turn has no fixed size, so `provider_cost_inr` — one flat number per operation — can
+    # only ever be an average, and an average is wrong in both directions: a one-line reply
+    # subsidises an essay. When these rates are set, chat is billed on the token counts the vendor
+    # actually reports. When they are zero the slot falls back to the flat price, which is what
+    # image generation still uses: a picture is one operation at one price, with no tokens to meter.
+    input_cost_per_mtok_inr: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    output_cost_per_mtok_inr: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    # What the customer pays per rupee of vendor cost on a metered operation. 1.000 sells it on at
+    # cost; 2.000 doubles it. A multiplier rather than a flat margin because there is no "operation"
+    # of a fixed size to attach a flat margin to — the bill scales with the answer, so the margin
+    # has to as well.
+    markup_multiplier: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False, default=1)
+
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)

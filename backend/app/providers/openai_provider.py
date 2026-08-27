@@ -12,6 +12,7 @@ from app.providers.base import (
     ImageProvider,
     ImageResult,
     ProviderError,
+    TokenUsage,
 )
 from app.services import settings_service
 
@@ -49,6 +50,13 @@ _SIZES: dict[str, str] = {
 }
 
 
+def _record_usage(sink: TokenUsage | None, reported) -> None:
+    """Copy OpenAI's own token counts into the caller's box, when both exist."""
+    if sink is None or reported is None:
+        return
+    sink.record(getattr(reported, "prompt_tokens", 0), getattr(reported, "completion_tokens", 0))
+
+
 def _with_system(messages: list[ChatMessage], system: str | None) -> list[dict]:
     """OpenAI takes standing instructions as a system message at the head of the list."""
     head = [{"role": "system", "content": system}] if system else []
@@ -62,7 +70,11 @@ class OpenAIProvider(ChatProvider, ImageProvider):
         return _client_for(await settings_service.get_str("openai_api_key"))
 
     async def stream_chat(
-        self, messages: list[ChatMessage], model: str, system: str | None = None
+        self,
+        messages: list[ChatMessage],
+        model: str,
+        system: str | None = None,
+        usage: TokenUsage | None = None,
     ) -> AsyncIterator[str]:
         try:
             client = await self._client()
@@ -70,8 +82,13 @@ class OpenAIProvider(ChatProvider, ImageProvider):
                 model=model,
                 messages=_with_system(messages, system),
                 stream=True,
+                # Streamed responses carry no token counts unless asked. Without this the customer
+                # would be billed from a guess even though OpenAI knows the real figure — it simply
+                # arrives on one extra final chunk, which carries no `choices`.
+                stream_options={"include_usage": True},
             )
             async for chunk in stream:
+                _record_usage(usage, getattr(chunk, "usage", None))
                 delta = chunk.choices[0].delta.content if chunk.choices else None
                 if delta:
                     yield delta
@@ -84,7 +101,12 @@ class OpenAIProvider(ChatProvider, ImageProvider):
             raise ProviderError("openai", "OpenAI request failed", retryable=True) from exc
 
     async def complete(
-        self, messages: list[ChatMessage], model: str, system: str | None = None, max_tokens: int = 256
+        self,
+        messages: list[ChatMessage],
+        model: str,
+        system: str | None = None,
+        max_tokens: int = 256,
+        usage: TokenUsage | None = None,
     ) -> str:
         try:
             result = await (await self._client()).chat.completions.create(
@@ -92,6 +114,7 @@ class OpenAIProvider(ChatProvider, ImageProvider):
                 messages=_with_system(messages, system),
                 max_tokens=max_tokens,
             )
+            _record_usage(usage, getattr(result, "usage", None))
             return (result.choices[0].message.content or "").strip() if result.choices else ""
         except APITimeoutError as exc:
             raise ProviderError("openai", "OpenAI request timed out", retryable=True) from exc

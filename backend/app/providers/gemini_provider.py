@@ -13,6 +13,7 @@ from app.providers.base import (
     ImageProvider,
     ImageResult,
     ProviderError,
+    TokenUsage,
 )
 from app.services import settings_service
 
@@ -50,6 +51,21 @@ def _config(system: str | None, max_tokens: int | None = None) -> types.Generate
     )
 
 
+def _record_usage(sink: TokenUsage | None, metadata) -> None:
+    """Copy Gemini's own token counts into the caller's box, when both exist.
+
+    Reasoning tokens are counted as output because that is how they are billed: the customer never
+    sees them, but we are invoiced for them all the same, and a charge that ignored them would run
+    under cost on exactly the models that think the hardest.
+    """
+    if sink is None or metadata is None:
+        return
+    output = (metadata.candidates_token_count or 0) + (
+        getattr(metadata, "thoughts_token_count", 0) or 0
+    )
+    sink.record(metadata.prompt_token_count or 0, output)
+
+
 class GeminiProvider(ChatProvider, ImageProvider):
     name = "gemini"
 
@@ -57,7 +73,11 @@ class GeminiProvider(ChatProvider, ImageProvider):
         return _client_for(await settings_service.get_str("gemini_api_key"))
 
     async def stream_chat(
-        self, messages: list[ChatMessage], model: str, system: str | None = None
+        self,
+        messages: list[ChatMessage],
+        model: str,
+        system: str | None = None,
+        usage: TokenUsage | None = None,
     ) -> AsyncIterator[str]:
         try:
             client = await self._client()
@@ -65,6 +85,9 @@ class GeminiProvider(ChatProvider, ImageProvider):
                 model=model, contents=_to_history(messages), config=_config(system)
             )
             async for chunk in stream:
+                # Gemini repeats a running total on the chunks that carry one; the last report
+                # seen is the whole call, which is why `record` overwrites instead of adding.
+                _record_usage(usage, getattr(chunk, "usage_metadata", None))
                 if chunk.text:
                     yield chunk.text
         except (ClientError, ServerError) as exc:
@@ -74,7 +97,12 @@ class GeminiProvider(ChatProvider, ImageProvider):
             raise ProviderError("gemini", "Gemini request failed", retryable=True) from exc
 
     async def complete(
-        self, messages: list[ChatMessage], model: str, system: str | None = None, max_tokens: int = 256
+        self,
+        messages: list[ChatMessage],
+        model: str,
+        system: str | None = None,
+        max_tokens: int = 256,
+        usage: TokenUsage | None = None,
     ) -> str:
         try:
             response = await (await self._client()).aio.models.generate_content(
@@ -82,6 +110,7 @@ class GeminiProvider(ChatProvider, ImageProvider):
                 contents=_to_history(messages),
                 config=_config(system, max_tokens=max_tokens),
             )
+            _record_usage(usage, getattr(response, "usage_metadata", None))
             return (response.text or "").strip()
         except (ClientError, ServerError) as exc:
             retryable = isinstance(exc, ServerError) or getattr(exc, "code", None) == 429

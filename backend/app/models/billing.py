@@ -59,7 +59,11 @@ class Credit(Base, UUIDPKMixin, TimestampMixin):
     __table_args__ = (UniqueConstraint("user_id", name="uq_credits_user"),)
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
-    balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Held to four decimal places, not as whole rupees. A chat turn metered on real token counts
+    # costs a fraction of a rupee, and an integer wallet can only round that — up, and the customer
+    # is overcharged many times over for a short reply; down, and every message is free. Neither is
+    # a balance that means anything, so the wallet carries paise.
+    balance: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False, default=0)
 
     user = relationship("User", back_populates="credits")
 
@@ -72,7 +76,12 @@ class UsageRecord(Base, UUIDPKMixin, TimestampMixin):
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     model: Mapped[str] = mapped_column(String(100), nullable=False)
     operation: Mapped[str] = mapped_column(String(30), nullable=False)  # chat | image_generate | image_edit
-    credits_consumed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    credits_consumed: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False, default=0)
+    # What the vendor reported processing, when it reported anything. Stored next to the money so a
+    # disputed bill can be reconciled against the vendor's own invoice line by line, rather than
+    # taken on trust from a total this system computed for itself.
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # What this operation cost us, snapshotted at the time it ran. Stored rather than derived
     # so that repricing a provider tomorrow does not rewrite what yesterday earned.
     cost_inr: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False, default=0)
