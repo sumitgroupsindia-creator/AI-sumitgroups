@@ -12,6 +12,7 @@ from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.core.db import AsyncSessionLocal
 from app.services import bootstrap_service, settings_service
+from app.services.storage.preflight import check_storage_writable
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -33,6 +34,12 @@ async def lifespan(app: FastAPI):
             await bootstrap_service.ensure_admin_user(db)
     except Exception:  # never let a bootstrap problem stop the API from serving
         logger.warning("bootstrap.admin_failed", exc_info=True)
+
+    # Says once, loudly, what would otherwise show up only as every image silently failing.
+    try:
+        check_storage_writable()
+    except Exception:  # a probe that itself breaks must not stop the API from serving
+        logger.warning("storage.preflight_failed", exc_info=True)
     yield
     logger.info("app.shutdown")
 

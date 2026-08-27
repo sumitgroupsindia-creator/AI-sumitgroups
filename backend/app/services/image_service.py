@@ -210,8 +210,34 @@ async def _run_single_provider(
         await db.commit()
         logger.error("image.provider_failed", provider=provider_name, error=str(exc), request_ref=request_ref)
     except Exception as exc:  # unexpected failure — still must not crash the sibling task
+        latency_ms = int((time.perf_counter() - started) * 1000)
         result_row.status = "failed"
+        # The customer sees a generic line; the real reason is not theirs to read and may name our
+        # filesystem or our vendor account.
         result_row.error = "Unexpected error while generating the image."
+        result_row.latency_ms = latency_ms
         await refund_credits(db, user_id, price.credits)
+        # The ledger gets the real one. This branch used to record nothing at all, so a failure that
+        # was not the provider's fault — an unwritable storage mount, a bad thumbnail — left an
+        # administrator with a picture marked "failed" and no way to find out why except by reading
+        # container logs on the server.
+        await record_usage(
+            db,
+            user_id=user_id,
+            request_id=request_ref,
+            provider=provider_name,
+            model=model,
+            operation="image_generate",
+            credits_consumed=0,
+            status="failed",
+            latency_ms=latency_ms,
+            error=f"{type(exc).__name__}: {exc}"[:500],
+        )
         await db.commit()
-        logger.error("image.unexpected_failure", provider=provider_name, error=str(exc), request_ref=request_ref)
+        logger.error(
+            "image.unexpected_failure",
+            provider=provider_name,
+            error=f"{type(exc).__name__}: {exc}",
+            request_ref=request_ref,
+            exc_info=True,
+        )
